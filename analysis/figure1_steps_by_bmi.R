@@ -15,6 +15,16 @@ library(lubridate)
 library(scales)
 
 # ============================================================================
+# ENSURE OUTPUT DIRECTORIES EXIST
+# ============================================================================
+
+cat("Creating output directories...\n")
+dir.create("outputs/figures", recursive = TRUE, showWarnings = FALSE)
+dir.create("outputs/datasets", recursive = TRUE, showWarnings = FALSE)
+dir.create("outputs/tables", recursive = TRUE, showWarnings = FALSE)
+cat("  - Output directories ready\n\n")
+
+# ============================================================================
 # STEP 1: LOAD ALL PROCESSED DATA
 # ============================================================================
 
@@ -189,7 +199,8 @@ ggsave(
   plot = fig1,
   width = 10,
   height = 6,
-  dpi = 300
+  dpi = 300,
+  create.dir = TRUE
 )
 
 # Save as PDF
@@ -197,7 +208,8 @@ ggsave(
   filename = "outputs/figures/figure1_steps_by_bmi.pdf",
   plot = fig1,
   width = 10,
-  height = 6
+  height = 6,
+  create.dir = TRUE
 )
 
 # Save plot object
@@ -259,6 +271,167 @@ saveRDS(regression_results, file = "outputs/figures/figure1_regression_results.r
 cat("  - Regression results saved to:\n")
 cat("    - outputs/figures/figure1_regression_results.rds\n\n")
 
+# ============================================================================
+# STEP 8: CREATE FIGURE 1B - TREND LINES BY SEX
+# ============================================================================
+
+cat("Step 8: Creating Figure 1b (trend lines by sex)...\n\n")
+
+# Get sex from person dataframe
+person_sex <- dataset_06597753_person_df %>%
+  select(person_id, sex_at_birth)
+
+# Merge sex into plot cohort
+plot_cohort_sex <- plot_cohort %>%
+  left_join(person_sex, by = "person_id") %>%
+  filter(!is.na(sex_at_birth)) %>%
+  mutate(
+    sex_label = case_when(
+      tolower(sex_at_birth) %in% c("male", "m") ~ "Male",
+      tolower(sex_at_birth) %in% c("female", "f") ~ "Female",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(sex_label))
+
+cat("Sample Size by Sex:\n")
+print(table(plot_cohort_sex$sex_label))
+cat("\n")
+
+# Create Figure 1b with sex trend lines
+fig1b <- ggplot(plot_cohort_sex, aes(x = baseline_bmi, y = mean_steps)) +
+  # Add scatter points colored by BMI class
+  geom_point(aes(color = bmi_class_plot), alpha = 0.3, size = 1.5) +
+
+  # Add trend lines for Male vs Female (using fill for ribbon, color for line)
+  geom_smooth(aes(group = sex_label, linetype = sex_label),
+              method = "lm", se = TRUE, color = "#2166ac", fill = "#2166ac",
+              alpha = 0.2, size = 1.2,
+              data = plot_cohort_sex %>% filter(sex_label == "Male")) +
+  geom_smooth(aes(group = sex_label, linetype = sex_label),
+              method = "lm", se = TRUE, color = "#b2182b", fill = "#b2182b",
+              alpha = 0.2, size = 1.2,
+              data = plot_cohort_sex %>% filter(sex_label == "Female")) +
+
+  # Color scale for BMI class points
+  scale_color_manual(
+    name = "BMI Class",
+    values = c(
+      "18.5-25" = "#4575b4",
+      "25-30" = "#91bfdb",
+      "30-35" = "#ffffbf",
+      "35-40" = "#fc8d59",
+      ">=40" = "#d73027"
+    )
+  ) +
+
+  # Linetype scale for sex trend lines
+  scale_linetype_manual(
+    name = "Sex",
+    values = c("Male" = "solid", "Female" = "dashed")
+  ) +
+
+  # Axis labels and title
+  labs(
+    x = "BMI (kg/m²)",
+    y = "Average Daily Steps",
+    title = "Daily Steps by BMI (by Sex)",
+    subtitle = paste0("Blue line = Male, Red line = Female\n",
+                     "N = ", comma(nrow(plot_cohort_sex)), " participants")
+  ) +
+
+  # Formatting
+  scale_y_continuous(labels = comma, limits = c(0, NA)) +
+  scale_x_continuous(limits = c(18, NA)) +
+
+  # Theme
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 10),
+    panel.grid.minor = element_blank(),
+    legend.position = "right",
+    legend.box = "vertical"
+  )
+
+# Print the plot
+print(fig1b)
+
+# ============================================================================
+# STEP 9: SAVE FIGURE 1B
+# ============================================================================
+
+cat("\n\nStep 9: Saving Figure 1b...\n")
+
+# Save as PNG
+ggsave(
+  filename = "outputs/figures/figure1b_steps_by_bmi_sex.png",
+  plot = fig1b,
+  width = 10,
+  height = 6,
+  dpi = 300,
+  create.dir = TRUE
+)
+
+# Save as PDF
+ggsave(
+  filename = "outputs/figures/figure1b_steps_by_bmi_sex.pdf",
+  plot = fig1b,
+  width = 10,
+  height = 6,
+  create.dir = TRUE
+)
+
+# Save plot object
+saveRDS(fig1b, file = "outputs/figures/figure1b_steps_by_bmi_sex.rds")
+
+cat("  - Figure 1b saved to:\n")
+cat("    - outputs/figures/figure1b_steps_by_bmi_sex.png\n")
+cat("    - outputs/figures/figure1b_steps_by_bmi_sex.pdf\n")
+cat("    - outputs/figures/figure1b_steps_by_bmi_sex.rds\n\n")
+
+# ============================================================================
+# STEP 10: REGRESSION STATISTICS BY SEX
+# ============================================================================
+
+cat("Step 10: Calculating regression statistics by sex...\n\n")
+
+# Linear regression by sex
+model_male <- lm(mean_steps ~ baseline_bmi,
+                 data = plot_cohort_sex %>% filter(sex_label == "Male"))
+model_female <- lm(mean_steps ~ baseline_bmi,
+                   data = plot_cohort_sex %>% filter(sex_label == "Female"))
+
+cat("Linear Regression: Steps ~ BMI (Males)\n")
+cat("---------------------------------------\n")
+print(summary(model_male))
+cat("\n\n")
+
+cat("Linear Regression: Steps ~ BMI (Females)\n")
+cat("-----------------------------------------\n")
+print(summary(model_female))
+cat("\n\n")
+
+# Interaction model
+model_sex_interaction <- lm(mean_steps ~ baseline_bmi * sex_label, data = plot_cohort_sex)
+
+cat("Linear Regression: Steps ~ BMI * Sex (Interaction)\n")
+cat("---------------------------------------------------\n")
+print(summary(model_sex_interaction))
+cat("\n\n")
+
+# Save regression results
+regression_results_sex <- list(
+  males = model_male,
+  females = model_female,
+  interaction = model_sex_interaction
+)
+
+saveRDS(regression_results_sex, file = "outputs/figures/figure1b_regression_results.rds")
+
+cat("  - Regression results saved to:\n")
+cat("    - outputs/figures/figure1b_regression_results.rds\n\n")
+
 cat("========================================\n")
-cat("Figure 1 creation complete!\n")
+cat("Figure 1 and 1b creation complete!\n")
 cat("========================================\n\n")
