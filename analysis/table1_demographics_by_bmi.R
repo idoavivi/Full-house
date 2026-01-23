@@ -15,6 +15,16 @@ library(gtsummary)
 library(lubridate)
 
 # ============================================================================
+# ENSURE OUTPUT DIRECTORIES EXIST
+# ============================================================================
+
+cat("Creating output directories...\n")
+dir.create("outputs/figures", recursive = TRUE, showWarnings = FALSE)
+dir.create("outputs/datasets", recursive = TRUE, showWarnings = FALSE)
+dir.create("outputs/tables", recursive = TRUE, showWarnings = FALSE)
+cat("  - Output directories ready\n\n")
+
+# ============================================================================
 # STEP 1: LOAD ALL PROCESSED DATA
 # ============================================================================
 
