@@ -34,8 +34,8 @@ These are the Google Cloud Storage paths for the exported data (exported 2026-01
 ## Environment Setup
 
 ### Platform
-- **IDE**: RStudio on All of Us Workbench
-- **User Level**: Beginner to RStudio - provide step-by-step guidance
+- **IDE**: Jupyter Notebook on All of Us Workbench (R kernel)
+- **User Level**: Beginner - provide step-by-step guidance
 
 ### Required R Packages
 ```r
