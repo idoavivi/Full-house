@@ -20,6 +20,36 @@ This repository contains R code for analyzing the relationships between physical
 
 ## Getting Started
 
+### Choose Your Environment
+
+This repository supports **two environments**:
+
+1. **Jupyter Notebooks** (Recommended for All of Us Workbench)
+   - See **JUPYTER_QUICKSTART.md** for instructions
+   - Scripts in `notebooks/` folder
+   - Loads data from Google Cloud Storage
+   - Better for interactive exploration
+
+2. **RStudio** (Alternative)
+   - Continue reading this README
+   - Scripts in `data_preparation/` and `analysis/` folders
+   - Traditional R script workflow
+
+---
+
+## Jupyter Notebook Setup (Recommended)
+
+**Quick Start:** See [JUPYTER_QUICKSTART.md](JUPYTER_QUICKSTART.md) for complete instructions.
+
+1. Open All of Us Workbench
+2. Create new R notebook
+3. Run: `source("notebooks/01_load_data_jupyter.R")`
+4. Continue with remaining notebooks in order
+
+---
+
+## RStudio Setup (Alternative)
+
 ### Prerequisites
 
 1. Access to All of Us Secure Workbench
@@ -103,18 +133,27 @@ source("analysis/figure1_steps_by_bmi.R")
 Full-house/
 ├── README.md                          # This file
 ├── CLAUDE.md                          # AI assistant guide (detailed documentation)
-├── run_all.R                          # Master script to run all analyses
+├── JUPYTER_QUICKSTART.md              # Quick start guide for Jupyter
 │
-├── data_preparation/
+├── notebooks/                         # 📓 JUPYTER VERSIONS (Recommended)
+│   ├── 01_load_data_jupyter.R        # Load from Google Cloud Storage
+│   ├── 02_filter_weight_jupyter.R    # Filter and clean weight data
+│   ├── 03_filter_height_bmi_jupyter.R # (coming soon)
+│   ├── 04_filter_fitbit_jupyter.R     # (coming soon)
+│   └── ...                            # Additional notebooks
+│
+├── data_preparation/                  # 📊 RSTUDIO VERSIONS
 │   ├── 01_load_data.R                # Load exported dataframes
 │   ├── 02_filter_weight.R            # Filter and clean weight data
 │   ├── 03_filter_height_bmi.R        # Filter height, compute BMI
 │   ├── 04_filter_fitbit.R            # Validate Fitbit data
 │   └── 05_identify_glp1_bariatric.R  # Identify treatments
 │
-├── analysis/
+├── analysis/                          # 📊 RSTUDIO VERSIONS
 │   ├── table1_demographics_by_bmi.R  # Create Table 1
 │   └── figure1_steps_by_bmi.R        # Create Figure 1
+│
+├── run_all.R                          # Master script (RStudio only)
 │
 └── outputs/
     ├── datasets/                      # Processed .RData files
