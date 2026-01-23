@@ -15,6 +15,20 @@ This repository contains R code for analyzing bidirectional relationships betwee
 - **Data Security**: All data lives in the secure workbench and CANNOT be exported
 - **Workflow**: Code is generated locally, then copy-pasted to RStudio in All of Us
 
+### Data Export Paths (GCS)
+These are the Google Cloud Storage paths for the exported data (exported 2026-01-23):
+
+| Data Type | GCS Path |
+|-----------|----------|
+| Person | `gs://fc-secure-6de4ba39-0bb8-4e01-98e9-92988c2e5ddc/bq_exports/idoavivi@researchallofus.org/20260123/person_06597753/person_06597753_*.csv` |
+| Fitbit Activity | `gs://fc-secure-6de4ba39-0bb8-4e01-98e9-92988c2e5ddc/bq_exports/idoavivi@researchallofus.org/20260123/fitbit_activity_06597753/fitbit_activity_06597753_*.csv` |
+| Fitbit Intraday Steps | `gs://fc-secure-6de4ba39-0bb8-4e01-98e9-92988c2e5ddc/bq_exports/idoavivi@researchallofus.org/20260123/fitbit_intraday_steps_06597753/fitbit_intraday_steps_06597753_*.csv` |
+| Measurement | `gs://fc-secure-6de4ba39-0bb8-4e01-98e9-92988c2e5ddc/bq_exports/idoavivi@researchallofus.org/20260123/measurement_06597753/measurement_06597753_*.csv` |
+| Procedure | `gs://fc-secure-6de4ba39-0bb8-4e01-98e9-92988c2e5ddc/bq_exports/idoavivi@researchallofus.org/20260123/procedure_06597753/procedure_06597753_*.csv` |
+| Condition | `gs://fc-secure-6de4ba39-0bb8-4e01-98e9-92988c2e5ddc/bq_exports/idoavivi@researchallofus.org/20260123/condition_06597753/condition_06597753_*.csv` |
+| Observation | `gs://fc-secure-6de4ba39-0bb8-4e01-98e9-92988c2e5ddc/bq_exports/idoavivi@researchallofus.org/20260123/observation_06597753/observation_06597753_*.csv` |
+| Drug | `gs://fc-secure-6de4ba39-0bb8-4e01-98e9-92988c2e5ddc/bq_exports/idoavivi@researchallofus.org/20260123/drug_06597753/drug_06597753_*.csv` |
+
 ---
 
 ## Environment Setup
