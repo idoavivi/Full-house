@@ -13,6 +13,7 @@ cat("========================================\n\n")
 library(tidyverse)
 library(gtsummary)
 library(lubridate)
+library(gt)  # For HTML output
 
 # ============================================================================
 # ENSURE OUTPUT DIRECTORIES EXIST
@@ -231,9 +232,15 @@ table1_df <- table1_cohort %>%
 
 write_csv(table1_df, "outputs/tables/table1_summary_stats.csv")
 
+# Save as HTML
+table1 %>%
+  as_gt() %>%
+  gt::gtsave("outputs/tables/table1_demographics_by_bmi.html")
+
 cat("  - Table saved to:\n")
 cat("    - outputs/tables/table1_demographics_by_bmi.rds\n")
-cat("    - outputs/tables/table1_summary_stats.csv\n\n")
+cat("    - outputs/tables/table1_summary_stats.csv\n")
+cat("    - outputs/tables/table1_demographics_by_bmi.html\n\n")
 
 cat("========================================\n")
 cat("Table 1 creation complete!\n")

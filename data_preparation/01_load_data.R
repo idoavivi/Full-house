@@ -13,6 +13,16 @@ cat("========================================\n\n")
 library(tidyverse)
 library(lubridate)
 
+# ============================================================================
+# ENSURE OUTPUT DIRECTORIES EXIST
+# ============================================================================
+
+cat("Creating output directories...\n")
+dir.create("outputs/figures", recursive = TRUE, showWarnings = FALSE)
+dir.create("outputs/datasets", recursive = TRUE, showWarnings = FALSE)
+dir.create("outputs/tables", recursive = TRUE, showWarnings = FALSE)
+cat("  - Output directories ready\n\n")
+
 # Check if data has already been loaded from a previous session
 if (file.exists("outputs/datasets/01_raw_data.RData")) {
   cat("Loading data from previous session...\n")
