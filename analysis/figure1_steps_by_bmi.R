@@ -140,14 +140,14 @@ bmi_colors <- c(
   ">=40" = "#d73027"      # Red
 )
 
-# Create the plot
+# Create the plot with non-linear (LOESS) trend lines
 fig1 <- ggplot(plot_cohort, aes(x = baseline_bmi, y = mean_steps)) +
   # Add scatter points colored by BMI class
   geom_point(aes(color = bmi_class_plot), alpha = 0.3, size = 1.5) +
 
-  # Add trend lines for GLP-1 vs non-GLP-1
-  geom_smooth(aes(linetype = glp1_label), method = "lm", se = TRUE,
-              color = "#d73027", size = 1.2) +
+  # Add non-linear trend lines for GLP-1 vs non-GLP-1 (LOESS)
+  geom_smooth(aes(linetype = glp1_label), method = "loess", se = TRUE,
+              color = "#d73027", size = 1.2, span = 0.75) +
 
   # Color scale
   scale_color_manual(
@@ -165,8 +165,8 @@ fig1 <- ggplot(plot_cohort, aes(x = baseline_bmi, y = mean_steps)) +
   labs(
     x = "BMI (kg/m²)",
     y = "Average Daily Steps",
-    title = "Daily Steps by BMI",
-    subtitle = paste0("Quantile regression: -829 steps/day per BMI class (p < 0.001)\n",
+    title = "Daily Steps by BMI (GLP-1 vs Non-GLP-1)",
+    subtitle = paste0("Non-linear (LOESS) trend lines\n",
                      "N = ", comma(nrow(plot_cohort)), " participants")
   ) +
 
@@ -298,19 +298,19 @@ cat("Sample Size by Sex:\n")
 print(table(plot_cohort_sex$sex_label))
 cat("\n")
 
-# Create Figure 1b with sex trend lines
+# Create Figure 1b with sex trend lines (non-linear LOESS)
 fig1b <- ggplot(plot_cohort_sex, aes(x = baseline_bmi, y = mean_steps)) +
   # Add scatter points colored by BMI class
   geom_point(aes(color = bmi_class_plot), alpha = 0.3, size = 1.5) +
 
-  # Add trend lines for Male vs Female (using fill for ribbon, color for line)
+  # Add non-linear trend lines for Male vs Female (LOESS)
   geom_smooth(aes(group = sex_label, linetype = sex_label),
-              method = "lm", se = TRUE, color = "#2166ac", fill = "#2166ac",
-              alpha = 0.2, size = 1.2,
+              method = "loess", se = TRUE, color = "#2166ac", fill = "#2166ac",
+              alpha = 0.2, size = 1.2, span = 0.75,
               data = plot_cohort_sex %>% filter(sex_label == "Male")) +
   geom_smooth(aes(group = sex_label, linetype = sex_label),
-              method = "lm", se = TRUE, color = "#b2182b", fill = "#b2182b",
-              alpha = 0.2, size = 1.2,
+              method = "loess", se = TRUE, color = "#b2182b", fill = "#b2182b",
+              alpha = 0.2, size = 1.2, span = 0.75,
               data = plot_cohort_sex %>% filter(sex_label == "Female")) +
 
   # Color scale for BMI class points
@@ -335,8 +335,8 @@ fig1b <- ggplot(plot_cohort_sex, aes(x = baseline_bmi, y = mean_steps)) +
   labs(
     x = "BMI (kg/m²)",
     y = "Average Daily Steps",
-    title = "Daily Steps by BMI (by Sex)",
-    subtitle = paste0("Blue line = Male, Red line = Female\n",
+    title = "Daily Steps by BMI (Male vs Female)",
+    subtitle = paste0("Non-linear (LOESS) trend lines: Blue = Male, Red = Female\n",
                      "N = ", comma(nrow(plot_cohort_sex)), " participants")
   ) +
 
@@ -432,6 +432,141 @@ saveRDS(regression_results_sex, file = "outputs/figures/figure1b_regression_resu
 cat("  - Regression results saved to:\n")
 cat("    - outputs/figures/figure1b_regression_results.rds\n\n")
 
+# ============================================================================
+# STEP 11: CREATE FIGURE 1C - BAR CHART BY BMI CLASS AND SEX
+# ============================================================================
+
+cat("Step 11: Creating Figure 1c (bar chart by BMI class and sex)...\n\n")
+
+# Calculate summary statistics by BMI class and sex
+bar_data <- plot_cohort_sex %>%
+  group_by(bmi_class_plot, sex_label) %>%
+  summarize(
+    n = n(),
+    mean_steps = mean(mean_steps, na.rm = TRUE),
+    se_steps = sd(mean_steps, na.rm = TRUE) / sqrt(n()),
+    mean_sedentary = mean(mean_sedentary_min, na.rm = TRUE),
+    se_sedentary = sd(mean_sedentary_min, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(bmi_class_plot), !is.na(sex_label))
+
+cat("Summary by BMI Class and Sex:\n")
+print(bar_data)
+cat("\n")
+
+# Calculate scaling factor for dual y-axis
+# We want steps and sedentary minutes to be comparable on the plot
+# Typical steps: 5000-10000, typical sedentary: 600-900 minutes
+# Scale factor: sedentary * scale_factor ≈ steps range
+scale_factor <- max(bar_data$mean_steps, na.rm = TRUE) / max(bar_data$mean_sedentary, na.rm = TRUE)
+
+cat("Scale factor for dual y-axis:", round(scale_factor, 2), "\n\n")
+
+# Create bar chart with dual y-axes
+fig1c <- ggplot(bar_data, aes(x = bmi_class_plot)) +
+  # Steps bars
+  geom_bar(aes(y = mean_steps, fill = sex_label),
+           stat = "identity", position = position_dodge(width = 0.8),
+           width = 0.7, alpha = 0.9) +
+  # Error bars for steps
+  geom_errorbar(aes(y = mean_steps,
+                    ymin = mean_steps - se_steps,
+                    ymax = mean_steps + se_steps,
+                    group = sex_label),
+                position = position_dodge(width = 0.8),
+                width = 0.2, color = "black") +
+  # Sedentary points (scaled to right y-axis)
+  geom_point(aes(y = mean_sedentary * scale_factor, color = sex_label),
+             position = position_dodge(width = 0.8),
+             size = 4, shape = 18) +
+  # Connect sedentary points with lines
+  geom_line(aes(y = mean_sedentary * scale_factor, color = sex_label, group = sex_label),
+            position = position_dodge(width = 0.8),
+            size = 1.2, linetype = "dashed") +
+
+  # Colors
+  scale_fill_manual(
+    name = "Steps/Day",
+    values = c("Male" = "#2166ac", "Female" = "#b2182b")
+  ) +
+  scale_color_manual(
+    name = "Sedentary Min/Day",
+    values = c("Male" = "#08519c", "Female" = "#67000d")
+  ) +
+
+  # Dual y-axis
+  scale_y_continuous(
+    name = "Average Daily Steps",
+    labels = comma,
+    limits = c(0, NA),
+    sec.axis = sec_axis(
+      ~ . / scale_factor,
+      name = "Sedentary Minutes/Day",
+      labels = comma
+    )
+  ) +
+
+  # Labels
+  labs(
+    x = "BMI Class (kg/m²)",
+    title = "Steps and Sedentary Time by BMI Class and Sex",
+    subtitle = paste0("Bars = Steps/day, Diamonds = Sedentary minutes/day\n",
+                     "N = ", comma(nrow(plot_cohort_sex)), " participants")
+  ) +
+
+  # Theme
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 10),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom",
+    legend.box = "horizontal",
+    axis.title.y.right = element_text(color = "#67000d"),
+    axis.text.y.right = element_text(color = "#67000d")
+  )
+
+# Print the plot
+print(fig1c)
+
+# ============================================================================
+# STEP 12: SAVE FIGURE 1C
+# ============================================================================
+
+cat("\n\nStep 12: Saving Figure 1c...\n")
+
+# Save as PNG
+ggsave(
+  filename = "outputs/figures/figure1c_bar_steps_sedentary_by_sex.png",
+  plot = fig1c,
+  width = 12,
+  height = 7,
+  dpi = 300,
+  create.dir = TRUE
+)
+
+# Save as PDF
+ggsave(
+  filename = "outputs/figures/figure1c_bar_steps_sedentary_by_sex.pdf",
+  plot = fig1c,
+  width = 12,
+  height = 7,
+  create.dir = TRUE
+)
+
+# Save plot object
+saveRDS(fig1c, file = "outputs/figures/figure1c_bar_steps_sedentary_by_sex.rds")
+
+# Save bar data
+write_csv(bar_data, "outputs/figures/figure1c_bar_data.csv")
+
+cat("  - Figure 1c saved to:\n")
+cat("    - outputs/figures/figure1c_bar_steps_sedentary_by_sex.png\n")
+cat("    - outputs/figures/figure1c_bar_steps_sedentary_by_sex.pdf\n")
+cat("    - outputs/figures/figure1c_bar_steps_sedentary_by_sex.rds\n")
+cat("    - outputs/figures/figure1c_bar_data.csv\n\n")
+
 cat("========================================\n")
-cat("Figure 1 and 1b creation complete!\n")
+cat("Figure 1, 1b, and 1c creation complete!\n")
 cat("========================================\n\n")
