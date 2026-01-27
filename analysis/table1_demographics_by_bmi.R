@@ -32,6 +32,7 @@ cat("  - Output directories ready\n\n")
 cat("Step 1: Loading processed data...\n")
 
 load("outputs/datasets/01_raw_data.RData")
+load("outputs/datasets/03a_height_clean.RData")  # Contains height_final with height_m
 load("outputs/datasets/03c_baseline_bmi.RData")
 load("outputs/datasets/04c_baseline_activity.RData")
 load("outputs/datasets/04b_person_valid_days.RData")
@@ -240,6 +241,8 @@ cat("Step 5: Merging all data...\n")
 
 # Start with baseline BMI
 table1_data <- baseline_bmi %>%
+  # Join height data
+  left_join(height_final %>% select(person_id, height_m), by = "person_id") %>%
   # Join demographics
   left_join(person_demographics, by = "person_id") %>%
   # Join activity data
@@ -280,16 +283,17 @@ cat("  - Merged dataset has", nrow(table1_data), "persons\n\n")
 
 cat("Step 6: Calculating derived variables...\n")
 
-# Get height for ratio calculations (from baseline_bmi or recalculate)
-# baseline_bmi should have baseline_height_m
-
+# Calculate weight from BMI and height: weight = BMI * height^2
 table1_data <- table1_data %>%
   mutate(
+    # Calculate weight if not available (BMI * height_m^2)
+    baseline_weight_kg = baseline_bmi * (height_m^2),
+
     # Waist-to-hip ratio
     waist_hip_ratio = waist_cm / hip_cm,
 
     # Waist-to-height ratio (waist in cm, height in m -> convert height to cm)
-    waist_height_ratio = waist_cm / (baseline_height_m * 100),
+    waist_height_ratio = waist_cm / (height_m * 100),
 
     # Flag for WHtR >= 0.5 (central obesity indicator)
     whtr_elevated = waist_height_ratio >= 0.5,
