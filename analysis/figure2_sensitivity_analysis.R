@@ -32,7 +32,9 @@ cat("Step 1: Loading data...\n")
 
 load("outputs/datasets/01_raw_data.RData")
 load("outputs/datasets/02_weight_clean.RData")
+load("outputs/datasets/03c_baseline_bmi.RData")     # Contains baseline_bmi for BMI filtering
 load("outputs/datasets/04a_fitbit_valid.RData")
+load("outputs/datasets/05a_glp1_users.RData")       # Contains glp1_first_date and glp1_last_date
 load("outputs/datasets/05c_treatment_categories.RData")
 
 cat("  - Data loaded\n\n")
@@ -43,9 +45,8 @@ cat("  - Data loaded\n\n")
 
 cat("Step 2: Preparing base data...\n")
 
-# Get GLP-1 info
-glp1_info <- treatment_categories %>%
-  filter(glp1_user == TRUE) %>%
+# Get GLP-1 info from glp1_users (which has the dates)
+glp1_info <- glp1_users %>%
   select(person_id, glp1_user, glp1_first_date, glp1_last_date)
 
 # Count weight measurements per person
@@ -99,12 +100,15 @@ build_cohort <- function(
   glp1_info,
   weight_counts,
   treatment_categories,
+  baseline_bmi_data = NULL,  # Optional: baseline BMI for filtering
   min_weight_loss_pct = -5,
   min_days_peak_to_nadir = 30,
   activity_window_days = 30,
   min_fitbit_days = 3,
   min_weight_measurements = 2,
-  require_weight_confirmation = FALSE  # Require 2+ measurements near peak/nadir
+  require_weight_confirmation = FALSE,  # Require 2+ measurements near peak/nadir
+  min_bmi_glp1 = 27,  # Minimum BMI for GLP-1 users (per protocol)
+  min_bmi_all = NULL  # Optional: minimum BMI for all participants
 ) {
 
   # Filter by minimum weight measurements
@@ -189,6 +193,24 @@ build_cohort <- function(
     ) %>%
     filter(glp1_valid == TRUE)
 
+  # Apply BMI filter if baseline_bmi_data is provided
+  if (!is.null(baseline_bmi_data)) {
+    weight_trajectory <- weight_trajectory %>%
+      left_join(baseline_bmi_data %>% select(person_id, baseline_bmi), by = "person_id")
+
+    # Apply BMI >= 27 for GLP-1 users (per protocol)
+    if (!is.null(min_bmi_glp1)) {
+      weight_trajectory <- weight_trajectory %>%
+        filter(!(glp1_user == TRUE & (is.na(baseline_bmi) | baseline_bmi < min_bmi_glp1)))
+    }
+
+    # Apply overall BMI filter if specified
+    if (!is.null(min_bmi_all)) {
+      weight_trajectory <- weight_trajectory %>%
+        filter(!is.na(baseline_bmi) & baseline_bmi >= min_bmi_all)
+    }
+  }
+
   # For Non-GLP-1: exclude anyone with bariatric surgery
   bariatric_persons <- treatment_categories %>%
     filter(treatment_category %in% c("Bariatric_only", "GLP1_and_Bariatric")) %>%
@@ -259,6 +281,7 @@ run_regression <- function(data, group_filter = NULL) {
 cat("Step 6: Running sensitivity analysis...\n\n")
 
 # Define parameter combinations to test
+# Note: min_bmi_all = NULL means no overall BMI filter, 27 or 30 applies to all
 param_grid <- expand.grid(
   min_weight_loss_pct = c(-5, -10),
   min_days_peak_to_nadir = c(30, 60, 90),
@@ -266,6 +289,7 @@ param_grid <- expand.grid(
   min_fitbit_days = c(3, 5, 7),
   min_weight_measurements = c(2, 3, 5),
   require_weight_confirmation = c(FALSE, TRUE),
+  min_bmi_all = c(NA, 27, 30),  # NA = no filter, 27 = overweight+, 30 = obese only
   stringsAsFactors = FALSE
 )
 
@@ -288,12 +312,15 @@ for (i in 1:nrow(param_grid)) {
       glp1_info = glp1_info,
       weight_counts = weight_counts,
       treatment_categories = treatment_categories,
+      baseline_bmi_data = baseline_bmi,
       min_weight_loss_pct = params$min_weight_loss_pct,
       min_days_peak_to_nadir = params$min_days_peak_to_nadir,
       activity_window_days = params$activity_window_days,
       min_fitbit_days = params$min_fitbit_days,
       min_weight_measurements = params$min_weight_measurements,
-      require_weight_confirmation = params$require_weight_confirmation
+      require_weight_confirmation = params$require_weight_confirmation,
+      min_bmi_glp1 = 27,  # Always apply BMI >= 27 for GLP-1 users per protocol
+      min_bmi_all = if(is.na(params$min_bmi_all)) NULL else params$min_bmi_all
     )
 
     # Run regressions
@@ -309,6 +336,7 @@ for (i in 1:nrow(param_grid)) {
       min_fitbit_days = params$min_fitbit_days,
       min_weight_measurements = params$min_weight_measurements,
       require_weight_confirmation = params$require_weight_confirmation,
+      min_bmi_all = params$min_bmi_all,
       # Overall
       n_total = overall_stats$n,
       overall_slope = overall_stats$slope,
@@ -335,6 +363,7 @@ for (i in 1:nrow(param_grid)) {
       min_fitbit_days = params$min_fitbit_days,
       min_weight_measurements = params$min_weight_measurements,
       require_weight_confirmation = params$require_weight_confirmation,
+      min_bmi_all = params$min_bmi_all,
       n_total = 0,
       overall_slope = NA, overall_p = NA, overall_r2 = NA,
       n_glp1 = 0, glp1_slope = NA, glp1_p = NA, glp1_r2 = NA,
@@ -364,7 +393,7 @@ if (nrow(significant_overall) > 0) {
   print(significant_overall %>%
           select(combination, n_total, overall_slope, overall_p,
                  activity_window_days, min_fitbit_days,
-                 min_weight_measurements, require_weight_confirmation) %>%
+                 min_weight_measurements, min_bmi_all) %>%
           head(20))
 } else {
   cat("  None found\n")
@@ -381,7 +410,7 @@ if (nrow(significant_nonglp1) > 0) {
   print(significant_nonglp1 %>%
           select(combination, n_nonglp1, nonglp1_slope, nonglp1_p,
                  activity_window_days, min_fitbit_days,
-                 min_weight_measurements, require_weight_confirmation) %>%
+                 min_weight_measurements, min_bmi_all) %>%
           head(20))
 } else {
   cat("  None found\n")
@@ -398,7 +427,7 @@ if (nrow(significant_glp1) > 0) {
   print(significant_glp1 %>%
           select(combination, n_glp1, glp1_slope, glp1_p,
                  activity_window_days, min_fitbit_days,
-                 min_weight_measurements, require_weight_confirmation) %>%
+                 min_weight_measurements, min_bmi_all) %>%
           head(20))
 } else {
   cat("  None found\n")
@@ -425,6 +454,7 @@ if (nrow(best_overall) > 0) {
   cat("  - Min Fitbit days:", best_overall$min_fitbit_days, "\n")
   cat("  - Min weight measurements:", best_overall$min_weight_measurements, "\n")
   cat("  - Require weight confirmation:", best_overall$require_weight_confirmation, "\n")
+  cat("  - Min BMI (all):", ifelse(is.na(best_overall$min_bmi_all), "None", best_overall$min_bmi_all), "\n")
   cat("  - N:", best_overall$n_total, "\n")
   cat("  - Slope:", round(best_overall$overall_slope, 2), "steps per % weight change\n")
   cat("  - p-value:", format.pval(best_overall$overall_p, digits = 3), "\n")
@@ -445,12 +475,15 @@ if (nrow(best_overall) > 0) {
     glp1_info = glp1_info,
     weight_counts = weight_counts,
     treatment_categories = treatment_categories,
+    baseline_bmi_data = baseline_bmi,
     min_weight_loss_pct = best_overall$min_weight_loss_pct,
     min_days_peak_to_nadir = best_overall$min_days_peak_to_nadir,
     activity_window_days = best_overall$activity_window_days,
     min_fitbit_days = best_overall$min_fitbit_days,
     min_weight_measurements = best_overall$min_weight_measurements,
-    require_weight_confirmation = best_overall$require_weight_confirmation
+    require_weight_confirmation = best_overall$require_weight_confirmation,
+    min_bmi_glp1 = 27,
+    min_bmi_all = if(is.na(best_overall$min_bmi_all)) NULL else best_overall$min_bmi_all
   )
 
   # Apply outlier removal for plotting
@@ -520,8 +553,9 @@ if (nrow(best_overall) > 0) {
       subtitle = paste0(
         "N = ", comma(nrow(plot_data)), " | ",
         "Activity window: ±", best_overall$activity_window_days, " days | ",
-        "Min ", best_overall$min_fitbit_days, " valid Fitbit days | ",
-        "Min ", best_overall$min_weight_measurements, " weight measurements"
+        "Min ", best_overall$min_fitbit_days, " Fitbit days | ",
+        "Min ", best_overall$min_weight_measurements, " wt meas | ",
+        "BMI ≥ ", ifelse(is.na(best_overall$min_bmi_all), "27 (GLP-1 only)", best_overall$min_bmi_all)
       )
     ) +
     scale_x_continuous(labels = function(x) paste0(x, "%")) +
