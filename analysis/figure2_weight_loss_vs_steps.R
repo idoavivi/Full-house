@@ -119,11 +119,13 @@ weight_losers_glp1 <- weight_losers %>%
             by = "person_id") %>%
   left_join(glp1_dates, by = "person_id") %>%
   mutate(
-    # For GLP-1 users, check if nadir is during GLP-1 use
-    # Nadir should be between first GLP-1 date and last GLP-1 date (or after if still on it)
+    # For GLP-1 users, check if nadir is DURING GLP-1 treatment
+    # Nadir should be between first GLP-1 date and last GLP-1 date
     glp1_valid = case_when(
       glp1_user == FALSE | is.na(glp1_user) ~ TRUE,  # Non-GLP1 users are always valid
-      glp1_user == TRUE & nadir_date >= glp1_first_date ~ TRUE,  # Nadir during/after GLP1 start
+      glp1_user == TRUE &
+        nadir_date >= glp1_first_date &
+        nadir_date <= glp1_last_date ~ TRUE,  # Nadir DURING GLP1 treatment period
       TRUE ~ FALSE
     ),
     # Create group label
