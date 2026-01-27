@@ -32,6 +32,7 @@ cat("  - Output directories ready\n\n")
 cat("Step 1: Loading processed data...\n")
 
 load("outputs/datasets/01_raw_data.RData")
+load("outputs/datasets/02_weight_clean.RData")   # Contains weight_final with weight_kg
 load("outputs/datasets/03a_height_clean.RData")  # Contains height_final with height_m
 load("outputs/datasets/03c_baseline_bmi.RData")
 load("outputs/datasets/04c_baseline_activity.RData")
@@ -78,10 +79,30 @@ person_demographics <- dataset_06597753_person_df %>%
 cat("  - Demographics extracted for", nrow(person_demographics), "persons\n\n")
 
 # ============================================================================
-# STEP 3: EXTRACT ANTHROPOMETRIC MEASURES
+# STEP 3: CALCULATE BASELINE WEIGHT AND HEIGHT PER PERSON
 # ============================================================================
 
-cat("Step 3: Extracting anthropometric measures...\n")
+cat("Step 3: Calculating baseline weight and height per person...\n")
+
+# Baseline weight (mean per person from actual measurements)
+baseline_weight <- weight_final %>%
+  group_by(person_id) %>%
+  summarize(
+    baseline_weight_kg = mean(weight_kg, na.rm = TRUE),
+    n_weight_measurements = n(),
+    .groups = "drop"
+  )
+
+cat("  - Baseline weight for", nrow(baseline_weight), "persons\n")
+
+# Baseline height (already have height_final with height_m per person)
+cat("  - Baseline height for", nrow(height_final), "persons\n\n")
+
+# ============================================================================
+# STEP 4: EXTRACT OTHER ANTHROPOMETRIC MEASURES
+# ============================================================================
+
+cat("Step 4: Extracting other anthropometric measures...\n")
 
 # Get waist circumference
 waist_circ <- dataset_06597753_measurement_df %>%
@@ -241,6 +262,8 @@ cat("Step 5: Merging all data...\n")
 
 # Start with baseline BMI
 table1_data <- baseline_bmi %>%
+  # Join actual weight data (prioritize over calculated)
+  left_join(baseline_weight, by = "person_id") %>%
   # Join height data
   left_join(height_final %>% select(person_id, height_m), by = "person_id") %>%
   # Join demographics
@@ -283,11 +306,15 @@ cat("  - Merged dataset has", nrow(table1_data), "persons\n\n")
 
 cat("Step 6: Calculating derived variables...\n")
 
-# Calculate weight from BMI and height: weight = BMI * height^2
+# Use actual weight/height data; only calculate as fallback if missing
 table1_data <- table1_data %>%
   mutate(
-    # Calculate weight if not available (BMI * height_m^2)
-    baseline_weight_kg = baseline_bmi * (height_m^2),
+    # Use actual weight; calculate from BMI only if actual weight is missing
+    baseline_weight_kg = ifelse(
+      is.na(baseline_weight_kg),
+      baseline_bmi * (height_m^2),  # Fallback: calculate from BMI and height
+      baseline_weight_kg            # Prioritize actual measured weight
+    ),
 
     # Waist-to-hip ratio
     waist_hip_ratio = waist_cm / hip_cm,
@@ -301,6 +328,8 @@ table1_data <- table1_data %>%
     # Combined light + fairly active minutes
     mean_light_fairly_active_min = mean_lightly_active_min + mean_fairly_active_min
   )
+
+cat("  - Using actual weight for", sum(!is.na(table1_data$baseline_weight_kg)), "persons\n")
 
 cat("  - Derived variables calculated\n\n")
 
