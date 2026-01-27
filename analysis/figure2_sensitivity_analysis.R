@@ -120,26 +120,30 @@ build_cohort <- function(
     filter(person_id %in% eligible_persons)
 
   # Calculate peak and nadir for each person
-  weight_trajectory <- weight_filtered %>%
-    group_by(person_id) %>%
-    arrange(measurement_date) %>%
-    mutate(
-      peak_weight = max(weight_kg, na.rm = TRUE),
-      peak_date = measurement_date[which.max(weight_kg)],
-      # Nadir must be after peak
-      weight_after_peak = ifelse(measurement_date > peak_date, weight_kg, NA),
-      nadir_weight = min(weight_after_peak, na.rm = TRUE),
-      nadir_date = measurement_date[which.min(ifelse(measurement_date > peak_date, weight_kg, Inf))]
-    ) %>%
-    ungroup() %>%
-    # Get unique per person
-    select(person_id, peak_weight, peak_date, nadir_weight, nadir_date) %>%
-    distinct() %>%
-    filter(
-      !is.na(nadir_weight),
-      !is.infinite(nadir_weight),
-      nadir_date > peak_date
-    )
+  # Note: suppressWarnings is used because min() returns Inf when no valid nadir exists
+  # These cases are filtered out in the next step
+  weight_trajectory <- suppressWarnings(
+    weight_filtered %>%
+      group_by(person_id) %>%
+      arrange(measurement_date) %>%
+      mutate(
+        peak_weight = max(weight_kg, na.rm = TRUE),
+        peak_date = measurement_date[which.max(weight_kg)],
+        # Nadir must be after peak
+        weight_after_peak = ifelse(measurement_date > peak_date, weight_kg, NA),
+        nadir_weight = min(weight_after_peak, na.rm = TRUE),
+        nadir_date = measurement_date[which.min(ifelse(measurement_date > peak_date, weight_kg, Inf))]
+      ) %>%
+      ungroup() %>%
+      # Get unique per person
+      select(person_id, peak_weight, peak_date, nadir_weight, nadir_date) %>%
+      distinct() %>%
+      filter(
+        !is.na(nadir_weight),
+        !is.infinite(nadir_weight),
+        nadir_date > peak_date
+      )
+  )
 
   # Optional: Require confirmation measurements near peak/nadir
   if (require_weight_confirmation) {
