@@ -14,7 +14,15 @@ library(tidyverse)
 library(lubridate)
 library(scales)
 library(MatchIt)
-library(cobalt)
+
+# Try to load cobalt for balance plots (optional)
+cobalt_available <- requireNamespace("cobalt", quietly = TRUE)
+if (cobalt_available) {
+  library(cobalt)
+  cat("  - cobalt package loaded for balance diagnostics\n")
+} else {
+  cat("  - cobalt package not available, skipping balance plots\n")
+}
 
 # ============================================================================
 # ENSURE OUTPUT DIRECTORIES EXIST
@@ -464,21 +472,41 @@ tryCatch({
 
   cat("Step 11: Checking covariate balance after matching...\n\n")
 
-  # Balance table
-  bal_tab <- bal.tab(match_result, un = TRUE)
-  print(bal_tab)
-  cat("\n")
+  # Balance check using cobalt if available
+  if (cobalt_available) {
+    # Balance table
+    bal_tab <- bal.tab(match_result, un = TRUE)
+    print(bal_tab)
+    cat("\n")
 
-  # Save balance plot
-  png("outputs/figures/figure2b_balance_plot.png", width = 800, height = 600)
-  love.plot(match_result,
-            stats = c("m", "v"),  # Mean and variance
-            thresholds = c(m = 0.1),  # Threshold for standardized mean difference
-            var.order = "unadjusted",
-            abs = TRUE,
-            title = "Covariate Balance: Before and After Matching")
-  dev.off()
-  cat("  - Balance plot saved to: outputs/figures/figure2b_balance_plot.png\n\n")
+    # Save balance plot
+    png("outputs/figures/figure2b_balance_plot.png", width = 800, height = 600)
+    love.plot(match_result,
+              stats = c("m", "v"),  # Mean and variance
+              thresholds = c(m = 0.1),  # Threshold for standardized mean difference
+              var.order = "unadjusted",
+              abs = TRUE,
+              title = "Covariate Balance: Before and After Matching")
+    dev.off()
+    cat("  - Balance plot saved to: outputs/figures/figure2b_balance_plot.png\n\n")
+  } else {
+    # Manual balance check without cobalt
+    cat("  - cobalt not available, showing manual balance summary:\n\n")
+
+    balance_check <- match_data %>%
+      group_by(glp1_treated) %>%
+      summarize(
+        n = n(),
+        mean_age = mean(age, na.rm = TRUE),
+        mean_bmi = mean(baseline_bmi, na.rm = TRUE),
+        pct_female = 100 * mean(sex_female, na.rm = TRUE),
+        mean_peak_weight = mean(peak_weight_kg, na.rm = TRUE),
+        mean_steps_peak = mean(steps_at_peak, na.rm = TRUE),
+        .groups = "drop"
+      )
+    print(balance_check)
+    cat("\n")
+  }
 
   # ============================================================================
   # STEP 12: CREATE FIGURE 2B - MATCHED COHORT

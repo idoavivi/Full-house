@@ -455,64 +455,48 @@ cat("Summary by BMI Class and Sex:\n")
 print(bar_data)
 cat("\n")
 
-# Calculate scaling factor for dual y-axis
-# We want steps and sedentary minutes to be comparable on the plot
-# Typical steps: 5000-10000, typical sedentary: 600-900 minutes
-# Scale factor: sedentary * scale_factor ≈ steps range
-scale_factor <- max(bar_data$mean_steps, na.rm = TRUE) / max(bar_data$mean_sedentary, na.rm = TRUE)
+# Reshape data for faceted plot
+bar_data_long <- bar_data %>%
+  pivot_longer(
+    cols = c(mean_steps, mean_sedentary),
+    names_to = "metric",
+    values_to = "value"
+  ) %>%
+  mutate(
+    se = ifelse(metric == "mean_steps", se_steps, se_sedentary),
+    metric_label = ifelse(metric == "mean_steps",
+                          "Daily Steps",
+                          "Sedentary Minutes/Day")
+  )
 
-cat("Scale factor for dual y-axis:", round(scale_factor, 2), "\n\n")
-
-# Create bar chart with dual y-axes
-fig1c <- ggplot(bar_data, aes(x = bmi_class_plot)) +
-  # Steps bars
-  geom_bar(aes(y = mean_steps, fill = sex_label),
-           stat = "identity", position = position_dodge(width = 0.8),
+# Create faceted bar chart with adjusted y-axes to show differences
+fig1c <- ggplot(bar_data_long, aes(x = bmi_class_plot, y = value, fill = sex_label)) +
+  # Bars
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8),
            width = 0.7, alpha = 0.9) +
-  # Error bars for steps
-  geom_errorbar(aes(y = mean_steps,
-                    ymin = mean_steps - se_steps,
-                    ymax = mean_steps + se_steps,
-                    group = sex_label),
+  # Error bars
+  geom_errorbar(aes(ymin = value - se, ymax = value + se),
                 position = position_dodge(width = 0.8),
                 width = 0.2, color = "black") +
-  # Sedentary points (scaled to right y-axis)
-  geom_point(aes(y = mean_sedentary * scale_factor, color = sex_label),
-             position = position_dodge(width = 0.8),
-             size = 4, shape = 18) +
-  # Connect sedentary points with lines
-  geom_line(aes(y = mean_sedentary * scale_factor, color = sex_label, group = sex_label),
-            position = position_dodge(width = 0.8),
-            size = 1.2, linetype = "dashed") +
+
+  # Facet by metric with free y scales to show differences better
+  facet_wrap(~metric_label, scales = "free_y", ncol = 2) +
 
   # Colors
   scale_fill_manual(
-    name = "Steps/Day",
+    name = "Sex",
     values = c("Male" = "#2166ac", "Female" = "#b2182b")
   ) +
-  scale_color_manual(
-    name = "Sedentary Min/Day",
-    values = c("Male" = "#08519c", "Female" = "#67000d")
-  ) +
 
-  # Dual y-axis
-  scale_y_continuous(
-    name = "Average Daily Steps",
-    labels = comma,
-    limits = c(0, NA),
-    sec.axis = sec_axis(
-      ~ . / scale_factor,
-      name = "Sedentary Minutes/Day",
-      labels = comma
-    )
-  ) +
+  # Formatting
+  scale_y_continuous(labels = comma) +
 
   # Labels
   labs(
     x = "BMI Class (kg/m²)",
-    title = "Steps and Sedentary Time by BMI Class and Sex",
-    subtitle = paste0("Bars = Steps/day, Diamonds = Sedentary minutes/day\n",
-                     "N = ", comma(nrow(plot_cohort_sex)), " participants")
+    y = "",
+    title = "Physical Activity by BMI Class and Sex",
+    subtitle = paste0("N = ", comma(nrow(plot_cohort_sex)), " participants | Error bars = SE")
   ) +
 
   # Theme
@@ -522,21 +506,291 @@ fig1c <- ggplot(bar_data, aes(x = bmi_class_plot)) +
     plot.subtitle = element_text(size = 10),
     panel.grid.minor = element_blank(),
     legend.position = "bottom",
-    legend.box = "horizontal",
-    axis.title.y.right = element_text(color = "#67000d"),
-    axis.text.y.right = element_text(color = "#67000d")
+    strip.text = element_text(face = "bold", size = 11),
+    axis.text.x = element_text(angle = 45, hjust = 1)
   )
 
 # Print the plot
 print(fig1c)
 
+# Also create a zoomed version for sedentary minutes only
+# Calculate y-axis limits to emphasize differences
+sed_min <- min(bar_data$mean_sedentary - bar_data$se_sedentary, na.rm = TRUE) * 0.95
+sed_max <- max(bar_data$mean_sedentary + bar_data$se_sedentary, na.rm = TRUE) * 1.02
+
+fig1c_sedentary <- ggplot(bar_data, aes(x = bmi_class_plot, y = mean_sedentary, fill = sex_label)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8),
+           width = 0.7, alpha = 0.9) +
+  geom_errorbar(aes(ymin = mean_sedentary - se_sedentary,
+                    ymax = mean_sedentary + se_sedentary),
+                position = position_dodge(width = 0.8),
+                width = 0.2, color = "black") +
+
+  # Colors
+  scale_fill_manual(
+    name = "Sex",
+    values = c("Male" = "#2166ac", "Female" = "#b2182b")
+  ) +
+
+  # Adjusted y-axis to show differences (not starting at 0)
+  scale_y_continuous(
+    labels = comma,
+    limits = c(sed_min, sed_max)
+  ) +
+
+  # Add break indicator
+  coord_cartesian(ylim = c(sed_min, sed_max)) +
+
+  # Labels
+  labs(
+    x = "BMI Class (kg/m²)",
+    y = "Sedentary Minutes/Day",
+    title = "Sedentary Time by BMI Class and Sex",
+    subtitle = paste0("N = ", comma(nrow(plot_cohort_sex)),
+                     " participants | Y-axis truncated to show differences")
+  ) +
+
+  # Theme
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 10),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+print(fig1c_sedentary)
+
 # ============================================================================
-# STEP 12: SAVE FIGURE 1C
+# STEP 12: STATISTICAL TESTS FOR BAR CHART
 # ============================================================================
 
-cat("\n\nStep 12: Saving Figure 1c...\n")
+cat("Step 12: Calculating statistical significance for bar chart...\n\n")
 
-# Save as PNG
+# T-tests for sex differences within each BMI class
+significance_results <- bar_data %>%
+  group_by(bmi_class_plot) %>%
+  summarize(
+    # Get values for comparison
+    steps_male = mean_steps[sex_label == "Male"],
+    steps_female = mean_steps[sex_label == "Female"],
+    sed_male = mean_sedentary[sex_label == "Male"],
+    sed_female = mean_sedentary[sex_label == "Female"],
+    .groups = "drop"
+  )
+
+# Perform t-tests for each BMI class
+sex_tests <- plot_cohort_sex %>%
+  group_by(bmi_class_plot) %>%
+  summarize(
+    # T-test for steps
+    steps_t = tryCatch(
+      t.test(mean_steps ~ sex_label)$statistic,
+      error = function(e) NA
+    ),
+    steps_p = tryCatch(
+      t.test(mean_steps ~ sex_label)$p.value,
+      error = function(e) NA
+    ),
+    # T-test for sedentary
+    sed_t = tryCatch(
+      t.test(mean_sedentary_min ~ sex_label)$statistic,
+      error = function(e) NA
+    ),
+    sed_p = tryCatch(
+      t.test(mean_sedentary_min ~ sex_label)$p.value,
+      error = function(e) NA
+    ),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    # Significance stars
+    steps_sig = case_when(
+      steps_p < 0.001 ~ "***",
+      steps_p < 0.01 ~ "**",
+      steps_p < 0.05 ~ "*",
+      TRUE ~ "ns"
+    ),
+    sed_sig = case_when(
+      sed_p < 0.001 ~ "***",
+      sed_p < 0.01 ~ "**",
+      sed_p < 0.05 ~ "*",
+      TRUE ~ "ns"
+    )
+  )
+
+cat("Sex differences by BMI class:\n")
+print(sex_tests)
+cat("\n")
+
+# Add significance to bar_data for plotting
+bar_data_with_sig <- bar_data %>%
+  left_join(sex_tests %>% select(bmi_class_plot, steps_sig, sed_sig),
+            by = "bmi_class_plot")
+
+# Calculate 95% CI instead of SE
+bar_data_ci <- plot_cohort_sex %>%
+  group_by(bmi_class_plot, sex_label) %>%
+  summarize(
+    n = n(),
+    mean_steps = mean(mean_steps, na.rm = TRUE),
+    ci_steps = 1.96 * sd(mean_steps, na.rm = TRUE) / sqrt(n()),
+    mean_sedentary = mean(mean_sedentary_min, na.rm = TRUE),
+    ci_sedentary = 1.96 * sd(mean_sedentary_min, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(bmi_class_plot), !is.na(sex_label)) %>%
+  left_join(sex_tests %>% select(bmi_class_plot, steps_sig, sed_sig),
+            by = "bmi_class_plot")
+
+# Create position for significance markers (at max height of each BMI class)
+sig_positions_steps <- bar_data_ci %>%
+  group_by(bmi_class_plot) %>%
+  summarize(
+    y_pos = max(mean_steps + ci_steps, na.rm = TRUE) * 1.05,
+    sig = first(steps_sig),
+    .groups = "drop"
+  )
+
+sig_positions_sed <- bar_data_ci %>%
+  group_by(bmi_class_plot) %>%
+  summarize(
+    y_pos = max(mean_sedentary + ci_sedentary, na.rm = TRUE) * 1.02,
+    sig = first(sed_sig),
+    .groups = "drop"
+  )
+
+# Reshape for faceted plot
+bar_data_long_ci <- bar_data_ci %>%
+  pivot_longer(
+    cols = c(mean_steps, mean_sedentary),
+    names_to = "metric",
+    values_to = "value"
+  ) %>%
+  mutate(
+    ci = ifelse(metric == "mean_steps", ci_steps, ci_sedentary),
+    sig = ifelse(metric == "mean_steps", steps_sig, sed_sig),
+    metric_label = ifelse(metric == "mean_steps",
+                          "Daily Steps",
+                          "Sedentary Minutes/Day")
+  )
+
+# Calculate significance positions for faceted plot
+sig_data <- bar_data_long_ci %>%
+  group_by(bmi_class_plot, metric_label) %>%
+  summarize(
+    y_pos = max(value + ci, na.rm = TRUE) * 1.05,
+    sig = first(sig),
+    .groups = "drop"
+  ) %>%
+  filter(sig != "ns")  # Only show significant differences
+
+# Create faceted bar chart with 95% CI and significance markers
+fig1c <- ggplot(bar_data_long_ci, aes(x = bmi_class_plot, y = value, fill = sex_label)) +
+  # Bars
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8),
+           width = 0.7, alpha = 0.9) +
+  # 95% CI error bars
+  geom_errorbar(aes(ymin = value - ci, ymax = value + ci),
+                position = position_dodge(width = 0.8),
+                width = 0.2, color = "black") +
+  # Significance markers
+  geom_text(data = sig_data,
+            aes(x = bmi_class_plot, y = y_pos, label = sig),
+            inherit.aes = FALSE,
+            size = 5, fontface = "bold") +
+
+  # Facet by metric with free y scales
+  facet_wrap(~metric_label, scales = "free_y", ncol = 2) +
+
+  # Colors
+  scale_fill_manual(
+    name = "Sex",
+    values = c("Male" = "#2166ac", "Female" = "#b2182b")
+  ) +
+
+  # Formatting
+  scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.1))) +
+
+  # Labels
+  labs(
+    x = "BMI Class (kg/m²)",
+    y = "",
+    title = "Physical Activity by BMI Class and Sex",
+    subtitle = paste0("N = ", comma(nrow(plot_cohort_sex)),
+                     " | Error bars = 95% CI | *p<0.05, **p<0.01, ***p<0.001 (M vs F)")
+  ) +
+
+  # Theme
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 10),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom",
+    strip.text = element_text(face = "bold", size = 11),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+# Print the plot
+print(fig1c)
+
+# Create zoomed sedentary plot with significance
+sed_min <- min(bar_data_ci$mean_sedentary - bar_data_ci$ci_sedentary, na.rm = TRUE) * 0.95
+sed_max <- max(bar_data_ci$mean_sedentary + bar_data_ci$ci_sedentary, na.rm = TRUE) * 1.08
+
+fig1c_sedentary <- ggplot(bar_data_ci, aes(x = bmi_class_plot, y = mean_sedentary, fill = sex_label)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8),
+           width = 0.7, alpha = 0.9) +
+  geom_errorbar(aes(ymin = mean_sedentary - ci_sedentary,
+                    ymax = mean_sedentary + ci_sedentary),
+                position = position_dodge(width = 0.8),
+                width = 0.2, color = "black") +
+  # Significance markers
+  geom_text(data = sig_positions_sed %>% filter(sig != "ns"),
+            aes(x = bmi_class_plot, y = y_pos, label = sig),
+            inherit.aes = FALSE,
+            size = 5, fontface = "bold") +
+
+  # Colors
+  scale_fill_manual(
+    name = "Sex",
+    values = c("Male" = "#2166ac", "Female" = "#b2182b")
+  ) +
+
+  # Adjusted y-axis
+  scale_y_continuous(labels = comma) +
+  coord_cartesian(ylim = c(sed_min, sed_max)) +
+
+  # Labels
+  labs(
+    x = "BMI Class (kg/m²)",
+    y = "Sedentary Minutes/Day",
+    title = "Sedentary Time by BMI Class and Sex",
+    subtitle = paste0("N = ", comma(nrow(plot_cohort_sex)),
+                     " | 95% CI | Y-axis truncated | *p<0.05, **p<0.01, ***p<0.001")
+  ) +
+
+  # Theme
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 10),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+print(fig1c_sedentary)
+
+# ============================================================================
+# STEP 13: SAVE FIGURE 1C
+# ============================================================================
+
+cat("\n\nStep 13: Saving Figure 1c...\n")
+
+# Save faceted plot as PNG
 ggsave(
   filename = "outputs/figures/figure1c_bar_steps_sedentary_by_sex.png",
   plot = fig1c,
@@ -546,7 +800,7 @@ ggsave(
   create.dir = TRUE
 )
 
-# Save as PDF
+# Save faceted plot as PDF
 ggsave(
   filename = "outputs/figures/figure1c_bar_steps_sedentary_by_sex.pdf",
   plot = fig1c,
@@ -555,17 +809,37 @@ ggsave(
   create.dir = TRUE
 )
 
-# Save plot object
-saveRDS(fig1c, file = "outputs/figures/figure1c_bar_steps_sedentary_by_sex.rds")
+# Save zoomed sedentary plot
+ggsave(
+  filename = "outputs/figures/figure1c_sedentary_zoomed.png",
+  plot = fig1c_sedentary,
+  width = 10,
+  height = 7,
+  dpi = 300,
+  create.dir = TRUE
+)
 
-# Save bar data
-write_csv(bar_data, "outputs/figures/figure1c_bar_data.csv")
+ggsave(
+  filename = "outputs/figures/figure1c_sedentary_zoomed.pdf",
+  plot = fig1c_sedentary,
+  width = 10,
+  height = 7,
+  create.dir = TRUE
+)
+
+# Save plot objects
+saveRDS(fig1c, file = "outputs/figures/figure1c_bar_steps_sedentary_by_sex.rds")
+saveRDS(fig1c_sedentary, file = "outputs/figures/figure1c_sedentary_zoomed.rds")
+
+# Save bar data with significance
+write_csv(bar_data_ci, "outputs/figures/figure1c_bar_data.csv")
+write_csv(sex_tests, "outputs/figures/figure1c_significance_tests.csv")
 
 cat("  - Figure 1c saved to:\n")
-cat("    - outputs/figures/figure1c_bar_steps_sedentary_by_sex.png\n")
-cat("    - outputs/figures/figure1c_bar_steps_sedentary_by_sex.pdf\n")
-cat("    - outputs/figures/figure1c_bar_steps_sedentary_by_sex.rds\n")
-cat("    - outputs/figures/figure1c_bar_data.csv\n\n")
+cat("    - outputs/figures/figure1c_bar_steps_sedentary_by_sex.png/pdf\n")
+cat("    - outputs/figures/figure1c_sedentary_zoomed.png/pdf\n")
+cat("    - outputs/figures/figure1c_bar_data.csv\n")
+cat("    - outputs/figures/figure1c_significance_tests.csv\n\n")
 
 cat("========================================\n")
 cat("Figure 1, 1b, and 1c creation complete!\n")
