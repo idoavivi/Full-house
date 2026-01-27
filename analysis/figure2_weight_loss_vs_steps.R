@@ -163,11 +163,12 @@ get_window_steps <- function(person_ids, dates, fitbit_data, window_days = 30) {
   )
 
   # Join with fitbit data and filter to window
+  # Note: fitbit_valid uses 'date' column, not 'activity_date'
   result <- targets %>%
     left_join(fitbit_data, by = "person_id") %>%
     filter(
-      activity_date >= target_date - days(window_days),
-      activity_date <= target_date + days(window_days)
+      date >= target_date - days(window_days),
+      date <= target_date + days(window_days)
     ) %>%
     group_by(person_id) %>%
     summarize(
@@ -184,7 +185,7 @@ cat("  - Calculating steps around peak weight...\n")
 steps_at_peak <- get_window_steps(
   weight_losers_glp1$person_id,
   weight_losers_glp1$peak_date,
-  fitbit_valid %>% select(person_id, activity_date, steps),
+  fitbit_valid %>% select(person_id, date, steps),
   window_days = 30
 ) %>%
   rename(steps_at_peak = mean_steps, n_days_peak = n_days)
@@ -194,7 +195,7 @@ cat("  - Calculating steps around nadir weight...\n")
 steps_at_nadir <- get_window_steps(
   weight_losers_glp1$person_id,
   weight_losers_glp1$nadir_date,
-  fitbit_valid %>% select(person_id, activity_date, steps),
+  fitbit_valid %>% select(person_id, date, steps),
   window_days = 30
 ) %>%
   rename(steps_at_nadir = mean_steps, n_days_nadir = n_days)
@@ -257,7 +258,44 @@ figure2_plot_data <- figure2_data %>%
 
 cat("  - After outlier removal:", nrow(figure2_plot_data), "persons\n\n")
 
-# Create scatter plot
+# Calculate regression statistics for each group
+calc_regression_stats <- function(data, group_name) {
+  group_data <- data %>% filter(group == group_name)
+  if (nrow(group_data) < 10) return(NULL)
+
+  model <- lm(delta_steps ~ weight_change_pct, data = group_data)
+  coef_data <- summary(model)$coefficients
+
+  list(
+    n = nrow(group_data),
+    slope = coef_data["weight_change_pct", "Estimate"],
+    se = coef_data["weight_change_pct", "Std. Error"],
+    p_value = coef_data["weight_change_pct", "Pr(>|t|)"],
+    r_squared = summary(model)$r.squared
+  )
+}
+
+# Get regression stats for both groups
+stats_glp1 <- calc_regression_stats(figure2_plot_data, "GLP-1 User")
+stats_nonglp1 <- calc_regression_stats(figure2_plot_data, "Non-GLP-1")
+
+# Format p-values for display
+format_p <- function(p) {
+  if (is.null(p)) return("N/A")
+  if (p < 0.001) return("p<0.001")
+  paste0("p=", sprintf("%.3f", p))
+}
+
+# Create annotation text for regression lines
+annotation_glp1 <- if (!is.null(stats_glp1)) {
+  paste0("GLP-1: β=", round(stats_glp1$slope, 1), " steps/%, ", format_p(stats_glp1$p_value))
+} else "GLP-1: insufficient data"
+
+annotation_nonglp1 <- if (!is.null(stats_nonglp1)) {
+  paste0("Non-GLP-1: β=", round(stats_nonglp1$slope, 1), " steps/%, ", format_p(stats_nonglp1$p_value))
+} else "Non-GLP-1: insufficient data"
+
+# Create scatter plot with LINEAR regression lines and p-values
 fig2 <- ggplot(figure2_plot_data, aes(x = weight_change_pct, y = delta_steps, color = group)) +
   # Add scatter points
   geom_point(alpha = 0.5, size = 2) +
@@ -266,8 +304,8 @@ fig2 <- ggplot(figure2_plot_data, aes(x = weight_change_pct, y = delta_steps, co
   geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
   geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
 
-  # Add trend lines (LOESS for non-linear)
-  geom_smooth(method = "loess", se = TRUE, size = 1.2, span = 0.75) +
+  # Add LINEAR regression lines for each group (to show slopes with p-values)
+  geom_smooth(method = "lm", se = TRUE, size = 1.2) +
 
   # Colors
   scale_color_manual(
@@ -275,14 +313,20 @@ fig2 <- ggplot(figure2_plot_data, aes(x = weight_change_pct, y = delta_steps, co
     values = c("GLP-1 User" = "#d73027", "Non-GLP-1" = "#4575b4")
   ) +
 
+  # Add regression annotation
+  annotate("text", x = -23, y = 3500, label = annotation_glp1,
+           hjust = 0, size = 3.5, color = "#d73027", fontface = "bold") +
+  annotate("text", x = -23, y = 3000, label = annotation_nonglp1,
+           hjust = 0, size = 3.5, color = "#4575b4", fontface = "bold") +
+
   # Axis labels
   labs(
     x = "Weight Change (%)",
     y = "Change in Daily Steps (steps/day)",
-    title = "Weight Loss vs Change in Physical Activity",
+    title = "Weight Loss vs Change in Physical Activity (>5% Weight Loss)",
     subtitle = paste0(
-      "N = ", comma(nrow(figure2_plot_data)), " participants with >5% weight loss\n",
-      "Steps measured in 30-day windows around peak and nadir weight"
+      "N = ", comma(nrow(figure2_plot_data)), " participants\n",
+      "Linear regression lines with 95% CI | Steps measured in 30-day windows"
     )
   ) +
 
@@ -338,6 +382,123 @@ cat("    - outputs/figures/figure2_weight_loss_vs_steps.png\n")
 cat("    - outputs/figures/figure2_weight_loss_vs_steps.pdf\n")
 cat("    - outputs/figures/figure2_weight_loss_vs_steps.rds\n")
 cat("    - outputs/figures/figure2_data.csv\n\n")
+
+# ============================================================================
+# STEP 8B: CREATE FIGURE 2 VERSION FOR >10% WEIGHT LOSS
+# ============================================================================
+
+cat("Step 8b: Creating Figure 2 for >10% weight loss cohort...\n\n")
+
+# Filter to >10% weight loss
+figure2_data_10pct <- figure2_data %>%
+  filter(weight_change_pct <= -10)
+
+cat("  - >10% weight loss cohort:", nrow(figure2_data_10pct), "persons\n")
+cat("    - GLP-1 users:", sum(figure2_data_10pct$group == "GLP-1 User"), "\n")
+cat("    - Non-GLP-1:", sum(figure2_data_10pct$group == "Non-GLP-1"), "\n\n")
+
+# Apply outlier bounds
+figure2_plot_data_10pct <- figure2_data_10pct %>%
+  filter(
+    weight_change_pct >= -25,
+    delta_steps >= -4000,
+    delta_steps <= 4000
+  )
+
+cat("  - After outlier removal:", nrow(figure2_plot_data_10pct), "persons\n\n")
+
+# Calculate regression stats for >10% cohort
+stats_glp1_10pct <- calc_regression_stats(figure2_plot_data_10pct, "GLP-1 User")
+stats_nonglp1_10pct <- calc_regression_stats(figure2_plot_data_10pct, "Non-GLP-1")
+
+# Format annotations for >10% cohort
+annotation_glp1_10pct <- if (!is.null(stats_glp1_10pct)) {
+  paste0("GLP-1: β=", round(stats_glp1_10pct$slope, 1), " steps/%, ", format_p(stats_glp1_10pct$p_value))
+} else "GLP-1: insufficient data"
+
+annotation_nonglp1_10pct <- if (!is.null(stats_nonglp1_10pct)) {
+  paste0("Non-GLP-1: β=", round(stats_nonglp1_10pct$slope, 1), " steps/%, ", format_p(stats_nonglp1_10pct$p_value))
+} else "Non-GLP-1: insufficient data"
+
+# Create scatter plot for >10% weight loss
+fig2_10pct <- ggplot(figure2_plot_data_10pct, aes(x = weight_change_pct, y = delta_steps, color = group)) +
+  # Add scatter points
+  geom_point(alpha = 0.5, size = 2) +
+
+  # Add horizontal and vertical reference lines at 0
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+
+  # Add LINEAR regression lines for each group
+  geom_smooth(method = "lm", se = TRUE, size = 1.2) +
+
+  # Colors
+  scale_color_manual(
+    name = "Group",
+    values = c("GLP-1 User" = "#d73027", "Non-GLP-1" = "#4575b4")
+  ) +
+
+  # Add regression annotation
+  annotate("text", x = -23, y = 3500, label = annotation_glp1_10pct,
+           hjust = 0, size = 3.5, color = "#d73027", fontface = "bold") +
+  annotate("text", x = -23, y = 3000, label = annotation_nonglp1_10pct,
+           hjust = 0, size = 3.5, color = "#4575b4", fontface = "bold") +
+
+  # Axis labels
+  labs(
+    x = "Weight Change (%)",
+    y = "Change in Daily Steps (steps/day)",
+    title = "Weight Loss vs Change in Physical Activity (>10% Weight Loss)",
+    subtitle = paste0(
+      "N = ", comma(nrow(figure2_plot_data_10pct)), " participants\n",
+      "Linear regression lines with 95% CI | Steps measured in 30-day windows"
+    )
+  ) +
+
+  # Formatting
+  scale_x_continuous(labels = function(x) paste0(x, "%")) +
+  scale_y_continuous(labels = comma) +
+
+  # Theme
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 10),
+    panel.grid.minor = element_blank(),
+    legend.position = "right"
+  )
+
+# Print the plot
+print(fig2_10pct)
+
+# Save >10% weight loss figure
+cat("\nSaving >10% weight loss figure...\n")
+
+ggsave(
+  filename = "outputs/figures/figure2_weight_loss_vs_steps_10pct.png",
+  plot = fig2_10pct,
+  width = 10,
+  height = 7,
+  dpi = 300,
+  create.dir = TRUE
+)
+
+ggsave(
+  filename = "outputs/figures/figure2_weight_loss_vs_steps_10pct.pdf",
+  plot = fig2_10pct,
+  width = 10,
+  height = 7,
+  create.dir = TRUE
+)
+
+saveRDS(fig2_10pct, file = "outputs/figures/figure2_weight_loss_vs_steps_10pct.rds")
+write_csv(figure2_data_10pct, "outputs/figures/figure2_data_10pct.csv")
+
+cat("  - >10% weight loss figure saved to:\n")
+cat("    - outputs/figures/figure2_weight_loss_vs_steps_10pct.png\n")
+cat("    - outputs/figures/figure2_weight_loss_vs_steps_10pct.pdf\n")
+cat("    - outputs/figures/figure2_weight_loss_vs_steps_10pct.rds\n")
+cat("    - outputs/figures/figure2_data_10pct.csv\n\n")
 
 # ============================================================================
 # STEP 9: STATISTICAL ANALYSIS

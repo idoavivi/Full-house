@@ -469,98 +469,12 @@ bar_data_long <- bar_data %>%
                           "Sedentary Minutes/Day")
   )
 
-# Create faceted bar chart with adjusted y-axes to show differences
-fig1c <- ggplot(bar_data_long, aes(x = bmi_class_plot, y = value, fill = sex_label)) +
-  # Bars
-  geom_bar(stat = "identity", position = position_dodge(width = 0.8),
-           width = 0.7, alpha = 0.9) +
-  # Error bars
-  geom_errorbar(aes(ymin = value - se, ymax = value + se),
-                position = position_dodge(width = 0.8),
-                width = 0.2, color = "black") +
+# NOTE: The bar charts below are PRELIMINARY versions with SE error bars
+# The FINAL versions with 95% CI and significance markers are created after statistical tests
+# Skip printing these preliminary versions to avoid confusion
 
-  # Facet by metric with free y scales to show differences better
-  facet_wrap(~metric_label, scales = "free_y", ncol = 2) +
-
-  # Colors
-  scale_fill_manual(
-    name = "Sex",
-    values = c("Male" = "#2166ac", "Female" = "#b2182b")
-  ) +
-
-  # Formatting
-  scale_y_continuous(labels = comma) +
-
-  # Labels
-  labs(
-    x = "BMI Class (kg/m²)",
-    y = "",
-    title = "Physical Activity by BMI Class and Sex",
-    subtitle = paste0("N = ", comma(nrow(plot_cohort_sex)), " participants | Error bars = SE")
-  ) +
-
-  # Theme
-  theme_minimal(base_size = 12) +
-  theme(
-    plot.title = element_text(face = "bold", size = 14),
-    plot.subtitle = element_text(size = 10),
-    panel.grid.minor = element_blank(),
-    legend.position = "bottom",
-    strip.text = element_text(face = "bold", size = 11),
-    axis.text.x = element_text(angle = 45, hjust = 1)
-  )
-
-# Print the plot
-print(fig1c)
-
-# Also create a zoomed version for sedentary minutes only
-# Calculate y-axis limits to emphasize differences
-sed_min <- min(bar_data$mean_sedentary - bar_data$se_sedentary, na.rm = TRUE) * 0.95
-sed_max <- max(bar_data$mean_sedentary + bar_data$se_sedentary, na.rm = TRUE) * 1.02
-
-fig1c_sedentary <- ggplot(bar_data, aes(x = bmi_class_plot, y = mean_sedentary, fill = sex_label)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.8),
-           width = 0.7, alpha = 0.9) +
-  geom_errorbar(aes(ymin = mean_sedentary - se_sedentary,
-                    ymax = mean_sedentary + se_sedentary),
-                position = position_dodge(width = 0.8),
-                width = 0.2, color = "black") +
-
-  # Colors
-  scale_fill_manual(
-    name = "Sex",
-    values = c("Male" = "#2166ac", "Female" = "#b2182b")
-  ) +
-
-  # Adjusted y-axis to show differences (not starting at 0)
-  scale_y_continuous(
-    labels = comma,
-    limits = c(sed_min, sed_max)
-  ) +
-
-  # Add break indicator
-  coord_cartesian(ylim = c(sed_min, sed_max)) +
-
-  # Labels
-  labs(
-    x = "BMI Class (kg/m²)",
-    y = "Sedentary Minutes/Day",
-    title = "Sedentary Time by BMI Class and Sex",
-    subtitle = paste0("N = ", comma(nrow(plot_cohort_sex)),
-                     " participants | Y-axis truncated to show differences")
-  ) +
-
-  # Theme
-  theme_minimal(base_size = 12) +
-  theme(
-    plot.title = element_text(face = "bold", size = 14),
-    plot.subtitle = element_text(size = 10),
-    panel.grid.minor = element_blank(),
-    legend.position = "bottom",
-    axis.text.x = element_text(angle = 45, hjust = 1)
-  )
-
-print(fig1c_sedentary)
+# Preliminary bar_data_long (used to build toward final chart with CI)
+# This version uses SE - final version will use 95% CI
 
 # ============================================================================
 # STEP 12: STATISTICAL TESTS FOR BAR CHART
