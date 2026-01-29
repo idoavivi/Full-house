@@ -140,7 +140,7 @@ for (i in 1:nrow(param_grid)) {
         weight_loss = p$min_weight_loss_pct,
         window = p$activity_window_days,
         fitbit_days = p$min_fitbit_days,
-        bmi_filter = ifelse(is.na(p$min_bmi_all), "None", p$min_bmi_all),
+        bmi_filter = as.character(ifelse(is.na(p$min_bmi_all), "None", p$min_bmi_all)),
         n = nrow(cohort),
         n_glp1 = sum(cohort$group == "GLP-1 User"),
         slope = round(coef["weight_change_pct", "Estimate"], 1),
