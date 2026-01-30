@@ -28,9 +28,16 @@ load("outputs/datasets/05c_treatment_categories.RData")
 cat("  Done!\n\n")
 
 # Parameters
-BASE_WINDOW <- 90
-NADIR_WINDOW <- 90
+BASE_WINDOW_GLP1 <- 180     # days before baseline for GLP-1 (longer to increase n)
+BASE_WINDOW_NONGLP1 <- 90   # days before baseline for non-GLP-1
+NADIR_WINDOW <- 90          # days around nadir for activity
 MIN_FITBIT_DAYS <- 5
+
+cat("Parameters:\n")
+cat("  GLP-1 baseline activity window:", BASE_WINDOW_GLP1, "days BEFORE baseline\n")
+cat("  Non-GLP-1 baseline activity window:", BASE_WINDOW_NONGLP1, "days BEFORE baseline\n")
+cat("  Nadir activity window:", NADIR_WINDOW, "days around nadir\n")
+cat("  Min Fitbit days:", MIN_FITBIT_DAYS, "\n\n")
 
 # ============================================================================
 # DEFINE BMI CLASS FUNCTION
@@ -138,7 +145,7 @@ cat("  GLP-1 with valid weight trajectory:", nrow(glp1_nadir), "\n")
 glp1_steps_baseline <- glp1_nadir %>%
   select(person_id, baseline_date) %>%
   left_join(fitbit_valid %>% select(person_id, date, steps), by = "person_id") %>%
-  filter(date >= baseline_date - BASE_WINDOW, date < baseline_date) %>%
+  filter(date >= baseline_date - BASE_WINDOW_GLP1, date < baseline_date) %>%
   group_by(person_id) %>%
   filter(n() >= MIN_FITBIT_DAYS) %>%
   summarize(steps_baseline = mean(steps, na.rm = TRUE), .groups = "drop")
@@ -185,8 +192,7 @@ non_glp1_trajectory <- suppressWarnings(
     filter(person_id %in% non_glp1_ids, !person_id %in% bariatric) %>%
     left_join(baseline_bmi %>% select(person_id, baseline_bmi), by = "person_id") %>%
     filter(!is.na(baseline_bmi)) %>%
-    mutate(height_m = sqrt(weight_kg / baseline_bmi)) %>%
-    group_by(person_id, height_m, baseline_bmi) %>%
+    group_by(person_id, baseline_bmi) %>%  # Don't include height_m - calculate after summarize
     filter(n() >= 2) %>%
     arrange(measurement_date) %>%
     summarize(
@@ -198,6 +204,8 @@ non_glp1_trajectory <- suppressWarnings(
     ) %>%
     filter(!is.infinite(nadir_weight), nadir_date > peak_date) %>%
     mutate(
+      # Derive height from peak weight and baseline_bmi (peak = baseline for non-GLP-1)
+      height_m = sqrt(peak_weight / baseline_bmi),
       weight_change_pct = (nadir_weight - peak_weight) / peak_weight * 100,
       peak_bmi = peak_weight / (height_m^2),
       nadir_bmi = nadir_weight / (height_m^2)
@@ -212,7 +220,7 @@ cat("  Non-GLP-1 with valid weight trajectory:", nrow(non_glp1_trajectory), "\n"
 non_glp1_steps_baseline <- non_glp1_trajectory %>%
   select(person_id, peak_date) %>%
   left_join(fitbit_valid %>% select(person_id, date, steps), by = "person_id") %>%
-  filter(date >= peak_date - BASE_WINDOW, date < peak_date) %>%
+  filter(date >= peak_date - BASE_WINDOW_NONGLP1, date < peak_date) %>%
   group_by(person_id) %>%
   filter(n() >= MIN_FITBIT_DAYS) %>%
   summarize(steps_baseline = mean(steps, na.rm = TRUE), .groups = "drop")
@@ -312,9 +320,17 @@ cat("Creating Figure 3A: Activity gap closure...\n")
 movers <- combined %>%
   filter(classes_dropped >= 1)
 
+n_glp1_movers <- sum(movers$group == "GLP-1")
+n_nonglp1_movers <- sum(movers$group == "Non-GLP-1")
+
 cat("  Persons who dropped >=1 BMI class:\n")
-cat("    GLP-1:", sum(movers$group == "GLP-1"), "\n")
-cat("    Non-GLP-1:", sum(movers$group == "Non-GLP-1"), "\n\n")
+cat("    GLP-1:", n_glp1_movers, "\n")
+cat("    Non-GLP-1:", n_nonglp1_movers, "\n\n")
+
+if (nrow(movers) == 0) {
+  cat("  WARNING: No persons dropped BMI classes! Skipping visualizations.\n")
+  cat("  This may indicate data processing issues.\n\n")
+} else {
 
 # Calculate gap closure
 gap_summary <- movers %>%
@@ -420,59 +436,69 @@ cat("Creating Figure 3C: Slope graph with BMI class references...\n")
 
 # Sample for clarity (too many lines = messy)
 set.seed(42)
-sample_glp1 <- movers %>% filter(group == "GLP-1") %>% sample_n(min(30, nrow(filter(movers, group == "GLP-1"))))
-sample_nonglp1 <- movers %>% filter(group == "Non-GLP-1") %>% sample_n(min(50, nrow(filter(movers, group == "Non-GLP-1"))))
-sample_data <- bind_rows(sample_glp1, sample_nonglp1)
+n_glp1_movers <- sum(movers$group == "GLP-1")
+n_nonglp1_movers <- sum(movers$group == "Non-GLP-1")
 
-# Reshape for slope graph
-slope_data <- sample_data %>%
-  select(person_id, group, steps_baseline, steps_nadir) %>%
-  pivot_longer(cols = c(steps_baseline, steps_nadir),
-               names_to = "timepoint",
-               values_to = "steps") %>%
-  mutate(timepoint = factor(timepoint,
-                            levels = c("steps_baseline", "steps_nadir"),
-                            labels = c("Baseline", "After Weight Loss")))
+if (n_glp1_movers > 0 && n_nonglp1_movers > 0) {
+  sample_glp1 <- movers %>% filter(group == "GLP-1") %>% sample_n(min(30, n_glp1_movers))
+  sample_nonglp1 <- movers %>% filter(group == "Non-GLP-1") %>% sample_n(min(50, n_nonglp1_movers))
+  sample_data <- bind_rows(sample_glp1, sample_nonglp1)
 
-# Expected steps reference (horizontal lines for each class)
-class_refs <- expected_by_class %>%
-  mutate(label = paste0(bmi_class, "\n", comma(round(expected_steps)), " steps"))
+  # Reshape for slope graph
+  slope_data <- sample_data %>%
+    select(person_id, group, steps_baseline, steps_nadir) %>%
+    pivot_longer(cols = c(steps_baseline, steps_nadir),
+                 names_to = "timepoint",
+                 values_to = "steps") %>%
+    mutate(timepoint = factor(timepoint,
+                              levels = c("steps_baseline", "steps_nadir"),
+                              labels = c("Baseline", "After Weight Loss")))
 
-fig3c <- ggplot() +
-  # Reference lines for BMI class averages
-  geom_hline(data = class_refs, aes(yintercept = expected_steps),
-             linetype = "dotted", color = "gray60", linewidth = 0.5) +
-  geom_text(data = class_refs, aes(x = 0.55, y = expected_steps, label = bmi_class),
-            hjust = 0, vjust = -0.3, size = 3, color = "gray40") +
-  # Individual trajectories
-  geom_line(data = slope_data, aes(x = timepoint, y = steps, group = person_id, color = group),
-            alpha = 0.4, linewidth = 0.5) +
-  geom_point(data = slope_data, aes(x = timepoint, y = steps, color = group),
-             alpha = 0.5, size = 2) +
-  # Group means
-  stat_summary(data = slope_data, aes(x = timepoint, y = steps, group = group, color = group),
-               fun = mean, geom = "line", linewidth = 2) +
-  stat_summary(data = slope_data, aes(x = timepoint, y = steps, group = group, color = group),
-               fun = mean, geom = "point", size = 4) +
-  scale_color_manual(values = c("GLP-1" = "#E41A1C", "Non-GLP-1" = "#377EB8")) +
-  scale_y_continuous(labels = comma, limits = c(2000, 14000)) +
-  labs(
-    title = "Individual Activity Trajectories After Weight Loss",
-    subtitle = "Dotted lines show average steps for each BMI class (cross-sectional)",
-    x = "",
-    y = "Daily Steps",
-    color = "Group"
-  ) +
-  theme_minimal(base_size = 13) +
-  theme(
-    legend.position = "bottom",
-    plot.title = element_text(face = "bold", size = 15),
-    panel.grid.minor = element_blank(),
-    panel.grid.major.x = element_blank()
-  )
+  # Expected steps reference (horizontal lines for each class)
+  class_refs <- expected_by_class %>%
+    mutate(label = paste0(bmi_class, "\n", comma(round(expected_steps)), " steps"))
 
-print(fig3c)
-ggsave("outputs/figures/figure3c_slope_trajectories.png", fig3c, width = 10, height = 8, dpi = 300)
+  fig3c <- ggplot() +
+    # Reference lines for BMI class averages
+    geom_hline(data = class_refs, aes(yintercept = expected_steps),
+               linetype = "dotted", color = "gray60", linewidth = 0.5) +
+    # Individual trajectories
+    geom_line(data = slope_data, aes(x = timepoint, y = steps, group = person_id, color = group),
+              alpha = 0.4, linewidth = 0.5) +
+    geom_point(data = slope_data, aes(x = timepoint, y = steps, color = group),
+               alpha = 0.5, size = 2) +
+    # Group means
+    stat_summary(data = slope_data, aes(x = timepoint, y = steps, group = group, color = group),
+                 fun = mean, geom = "line", linewidth = 2) +
+    stat_summary(data = slope_data, aes(x = timepoint, y = steps, group = group, color = group),
+                 fun = mean, geom = "point", size = 4) +
+    scale_color_manual(values = c("GLP-1" = "#E41A1C", "Non-GLP-1" = "#377EB8")) +
+    scale_y_continuous(labels = comma, limits = c(2000, 14000)) +
+    # Add BMI class reference labels on the right side
+    annotate("text", x = 2.1, y = class_refs$expected_steps, label = class_refs$bmi_class,
+             hjust = 0, size = 2.5, color = "gray40") +
+    coord_cartesian(clip = "off") +
+    labs(
+      title = "Individual Activity Trajectories After Weight Loss",
+      subtitle = "Dotted lines show average steps for each BMI class (cross-sectional)",
+      x = "",
+      y = "Daily Steps",
+      color = "Group"
+    ) +
+    theme_minimal(base_size = 13) +
+    theme(
+      legend.position = "bottom",
+      plot.title = element_text(face = "bold", size = 15),
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank(),
+      plot.margin = margin(5, 60, 5, 5)  # Extra right margin for labels
+    )
+
+  print(fig3c)
+  ggsave("outputs/figures/figure3c_slope_trajectories.png", fig3c, width = 10, height = 8, dpi = 300)
+} else {
+  cat("  Skipping Figure 3C - insufficient data in one or both groups\n")
+}
 
 # --------------------------------------------------------------------------
 # FIGURE 3D: Percent of expected change achieved (striking bar chart)
@@ -528,9 +554,13 @@ fig3d <- ggplot(pct_achieved, aes(x = group, y = mean_pct, fill = group)) +
 print(fig3d)
 ggsave("outputs/figures/figure3d_pct_achieved.png", fig3d, width = 8, height = 7, dpi = 300)
 
+}  # End of if (nrow(movers) > 0) block
+
 # ============================================================================
 # STATISTICAL TESTS
 # ============================================================================
+
+if (nrow(movers) > 0) {
 
 cat("\n========================================\n")
 cat("STATISTICAL TESTS\n")
@@ -540,25 +570,39 @@ cat("========================================\n\n")
 cat("1. Is actual step change significantly different from 0?\n")
 for (g in c("GLP-1", "Non-GLP-1")) {
   test_data <- movers %>% filter(group == g)
-  t_test <- t.test(test_data$delta_steps, mu = 0)
-  cat("   ", g, ": mean =", round(mean(test_data$delta_steps)),
-      ", t =", round(t_test$statistic, 2),
-      ", p =", format.pval(t_test$p.value, digits = 3), "\n")
+  if (nrow(test_data) > 2) {
+    t_test <- t.test(test_data$delta_steps, mu = 0)
+    cat("   ", g, ": mean =", round(mean(test_data$delta_steps)),
+        ", t =", round(t_test$statistic, 2),
+        ", p =", format.pval(t_test$p.value, digits = 3), "\n")
+  } else {
+    cat("   ", g, ": insufficient data (n =", nrow(test_data), ")\n")
+  }
 }
 
 cat("\n2. Is percent achieved different between groups?\n")
 test_pct <- movers %>% filter(!is.na(pct_expected_achieved), !is.infinite(pct_expected_achieved))
-wilcox_test <- wilcox.test(pct_expected_achieved ~ group, data = test_pct)
-cat("   Wilcoxon rank-sum test: p =", format.pval(wilcox_test$p.value, digits = 3), "\n")
+if (n_glp1_movers > 0 && n_nonglp1_movers > 0 && nrow(test_pct) > 4) {
+  wilcox_test <- wilcox.test(pct_expected_achieved ~ group, data = test_pct)
+  cat("   Wilcoxon rank-sum test: p =", format.pval(wilcox_test$p.value, digits = 3), "\n")
+} else {
+  cat("   Insufficient data for between-group comparison\n")
+}
 
 cat("\n3. Is percent achieved different from 100% (full adaptation)?\n")
 for (g in c("GLP-1", "Non-GLP-1")) {
   test_data <- test_pct %>% filter(group == g)
-  t_test <- t.test(test_data$pct_expected_achieved, mu = 100)
-  cat("   ", g, ": mean =", round(mean(test_data$pct_expected_achieved)), "%",
-      ", t =", round(t_test$statistic, 2),
-      ", p =", format.pval(t_test$p.value, digits = 3), "\n")
+  if (nrow(test_data) > 2) {
+    t_test <- t.test(test_data$pct_expected_achieved, mu = 100)
+    cat("   ", g, ": mean =", round(mean(test_data$pct_expected_achieved)), "%",
+        ", t =", round(t_test$statistic, 2),
+        ", p =", format.pval(t_test$p.value, digits = 3), "\n")
+  } else {
+    cat("   ", g, ": insufficient data (n =", nrow(test_data), ")\n")
+  }
 }
+
+}  # End of statistical tests if block
 
 # ============================================================================
 # SAVE DATA
