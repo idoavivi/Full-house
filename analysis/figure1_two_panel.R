@@ -55,70 +55,71 @@ fitbit_persons <- fitbit_valid %>%
   select(person_id) %>%
   distinct()
 
-# For each person, find max and min weight
-cat("  Finding max/min weights per person...\n")
+# For each person, find EARLIEST and LATEST weight measurements (temporal, not min/max)
+cat("  Finding earliest/latest weights per person (temporal ordering)...\n")
 
-weight_extremes <- weight_final %>%
+weight_temporal <- weight_final %>%
   filter(!person_id %in% bariatric_ids) %>%  # Exclude bariatric
   filter(person_id %in% fitbit_persons$person_id) %>%  # Must have Fitbit
   group_by(person_id) %>%
   filter(n() >= 2) %>%  # Need at least 2 measurements
+  arrange(measurement_date) %>%
   summarize(
-    max_weight = max(weight_kg, na.rm = TRUE),
-    max_weight_date = measurement_date[which.max(weight_kg)],
-    min_weight = min(weight_kg, na.rm = TRUE),
-    min_weight_date = measurement_date[which.min(weight_kg)],
+    earliest_weight = first(weight_kg),
+    earliest_date = first(measurement_date),
+    latest_weight = last(weight_kg),
+    latest_date = last(measurement_date),
     n_measurements = n(),
     .groups = "drop"
   ) %>%
   mutate(
-    days_apart = abs(as.numeric(difftime(min_weight_date, max_weight_date, units = "days"))),
-    delta_weight_kg = min_weight - max_weight,
-    delta_weight_pct = (min_weight - max_weight) / max_weight * 100
+    days_apart = as.numeric(difftime(latest_date, earliest_date, units = "days")),
+    delta_weight_kg = latest_weight - earliest_weight,  # Positive = gain, Negative = loss
+    delta_weight_pct = (latest_weight - earliest_weight) / earliest_weight * 100
   ) %>%
   filter(days_apart >= MIN_DAYS_APART)  # Ensure measurements are far enough apart
 
-cat("    Persons with weight extremes >=", MIN_DAYS_APART, "days apart:", nrow(weight_extremes), "\n")
+cat("    Persons with weight measurements >=", MIN_DAYS_APART, "days apart:", nrow(weight_temporal), "\n")
 
 # ============================================================================
-# GET ACTIVITY AT MAX WEIGHT (±15 days)
+# GET ACTIVITY AT EARLIEST WEIGHT (±15 days)
 # ============================================================================
 
-cat("  Getting activity at max weight...\n")
+cat("  Getting activity at earliest weight...\n")
 
-steps_at_max <- weight_extremes %>%
-  select(person_id, max_weight_date) %>%
+steps_at_earliest <- weight_temporal %>%
+  select(person_id, earliest_date) %>%
   left_join(fitbit_valid %>% select(person_id, date, steps), by = "person_id") %>%
-  filter(abs(as.numeric(difftime(date, max_weight_date, units = "days"))) <= ACTIVITY_WINDOW) %>%
+  filter(abs(as.numeric(difftime(date, earliest_date, units = "days"))) <= ACTIVITY_WINDOW) %>%
   group_by(person_id) %>%
   filter(n() >= MIN_ACTIVITY_DAYS) %>%
   summarize(
-    steps_at_max = mean(steps, na.rm = TRUE),
-    n_days_max = n(),
+    steps_at_earliest = mean(steps, na.rm = TRUE),
+    n_days_earliest = n(),
     .groups = "drop"
   )
 
-cat("    With sufficient activity at max weight:", nrow(steps_at_max), "\n")
+cat("    With sufficient activity at earliest weight:", nrow(steps_at_earliest), "\n")
 
 # ============================================================================
-# GET ACTIVITY AT MIN WEIGHT (±15 days)
+# GET ACTIVITY AT LATEST WEIGHT (±15 days)
 # ============================================================================
 
-cat("  Getting activity at min weight...\n")
+cat("  Getting activity at latest weight...\n")
 
-steps_at_min <- weight_extremes %>%
-  select(person_id, min_weight_date) %>%
+steps_at_latest <- weight_temporal %>%
+  select(person_id, latest_date) %>%
   left_join(fitbit_valid %>% select(person_id, date, steps), by = "person_id") %>%
-  filter(abs(as.numeric(difftime(date, min_weight_date, units = "days"))) <= ACTIVITY_WINDOW) %>%
+  filter(abs(as.numeric(difftime(date, latest_date, units = "days"))) <= ACTIVITY_WINDOW) %>%
   group_by(person_id) %>%
   filter(n() >= MIN_ACTIVITY_DAYS) %>%
   summarize(
-    steps_at_min = mean(steps, na.rm = TRUE),
-    n_days_min = n(),
+    steps_at_latest = mean(steps, na.rm = TRUE),
+    n_days_latest = n(),
     .groups = "drop"
   )
 
-cat("    With sufficient activity at min weight:", nrow(steps_at_min), "\n")
+cat("    With sufficient activity at latest weight:", nrow(steps_at_latest), "\n")
 
 # ============================================================================
 # COMBINE INTO FINAL COHORT
@@ -126,22 +127,21 @@ cat("    With sufficient activity at min weight:", nrow(steps_at_min), "\n")
 
 cat("  Combining into final cohort...\n")
 
-cohort <- weight_extremes %>%
-  inner_join(steps_at_max, by = "person_id") %>%
-  inner_join(steps_at_min, by = "person_id") %>%
-  # Join GLP-1 treatment dates to check if on treatment at min weight
+cohort <- weight_temporal %>%
+  inner_join(steps_at_earliest, by = "person_id") %>%
+  inner_join(steps_at_latest, by = "person_id") %>%
+  # Join GLP-1 treatment dates to check if on treatment at latest weight
   left_join(glp1_with_dates, by = "person_id") %>%
   mutate(
-    delta_steps = steps_at_min - steps_at_max,
-    # GLP-1 status: must be on active treatment at min weight date
-    # (min_weight_date between glp1_first_date and glp1_last_date + 90 days grace period)
+    delta_steps = steps_at_latest - steps_at_earliest,
+    # GLP-1 status: must be on active treatment at latest weight date
     glp1_user = ifelse(
       !is.na(glp1_first_date) &
-      min_weight_date >= glp1_first_date &
-      min_weight_date <= glp1_last_date + 90,
+      latest_date >= glp1_first_date &
+      latest_date <= glp1_last_date + 90,
       "GLP-1", "Non-GLP-1"
     ),
-    # Weight loss categories (for Panel B)
+    # Weight change categories (for Panel B - loss only)
     weight_loss_cat = case_when(
       delta_weight_pct > 0 ~ "Weight Gain",
       delta_weight_pct >= -5 ~ "<5% Loss",
@@ -156,6 +156,12 @@ cohort <- weight_extremes %>%
 cat("\nFINAL COHORT:", nrow(cohort), "persons\n")
 cat("  GLP-1 users:", sum(cohort$glp1_user == "GLP-1"), "\n")
 cat("  Non-GLP-1:", sum(cohort$glp1_user == "Non-GLP-1"), "\n\n")
+
+# Show weight gainers vs losers
+cat("Weight direction:\n")
+cat("  Weight losers (delta < 0):", sum(cohort$delta_weight_kg < 0), "\n")
+cat("  Weight gainers (delta > 0):", sum(cohort$delta_weight_kg > 0), "\n")
+cat("  No change:", sum(cohort$delta_weight_kg == 0), "\n\n")
 
 # Summary by group
 cat("Weight change summary:\n")
