@@ -29,18 +29,20 @@ cat("  Done!\n\n")
 
 # Parameters
 ACTIVITY_WINDOW <- 15  # days before/after weight measurement
-MIN_ACTIVITY_DAYS <- 5  # minimum valid Fitbit days in window
+MIN_ACTIVITY_DAYS <- 3  # RELAXED from 5 to 3 to increase sample size
 MIN_DAYS_APART <- 30    # minimum days between max and min weight
 
 # ============================================================================
-# IDENTIFY GLP-1 USERS
+# IDENTIFY BARIATRIC SURGERY (to exclude)
 # ============================================================================
-
-glp1_ids <- glp1_users$person_id
 
 bariatric_ids <- treatment_categories %>%
   filter(treatment_category %in% c("Bariatric_only", "GLP1_and_Bariatric")) %>%
   pull(person_id)
+
+# GLP-1 users with treatment dates (for checking if on treatment at min weight)
+glp1_with_dates <- glp1_users %>%
+  select(person_id, glp1_first_date, glp1_last_date)
 
 # ============================================================================
 # BUILD COHORT: Find max/min weights with activity data
@@ -127,9 +129,18 @@ cat("  Combining into final cohort...\n")
 cohort <- weight_extremes %>%
   inner_join(steps_at_max, by = "person_id") %>%
   inner_join(steps_at_min, by = "person_id") %>%
+  # Join GLP-1 treatment dates to check if on treatment at min weight
+  left_join(glp1_with_dates, by = "person_id") %>%
   mutate(
     delta_steps = steps_at_min - steps_at_max,
-    glp1_user = ifelse(person_id %in% glp1_ids, "GLP-1", "Non-GLP-1"),
+    # GLP-1 status: must be on active treatment at min weight date
+    # (min_weight_date between glp1_first_date and glp1_last_date + 90 days grace period)
+    glp1_user = ifelse(
+      !is.na(glp1_first_date) &
+      min_weight_date >= glp1_first_date &
+      min_weight_date <= glp1_last_date + 90,
+      "GLP-1", "Non-GLP-1"
+    ),
     # Weight loss categories (for Panel B)
     weight_loss_cat = case_when(
       delta_weight_pct > 0 ~ "Weight Gain",
@@ -139,7 +150,8 @@ cohort <- weight_extremes %>%
     ),
     weight_loss_cat = factor(weight_loss_cat,
                               levels = c("≥10% Loss", "5-10% Loss", "<5% Loss", "Weight Gain"))
-  )
+  ) %>%
+  select(-glp1_first_date, -glp1_last_date)  # Clean up temp columns
 
 cat("\nFINAL COHORT:", nrow(cohort), "persons\n")
 cat("  GLP-1 users:", sum(cohort$glp1_user == "GLP-1"), "\n")
@@ -280,7 +292,7 @@ panel_b <- ggplot(losers, aes(x = weight_loss_cat, y = delta_steps, fill = glp1_
                position = position_dodge(width = 0.8)) +
   # Colors
   scale_fill_manual(values = c("GLP-1" = "#E41A1C", "Non-GLP-1" = "#377EB8")) +
-  scale_y_continuous(labels = comma, limits = c(-6000, 6000)) +
+  scale_y_continuous(labels = comma, limits = c(-2000, 3000)) +  # Smaller scale to show differences
   # Labels
   labs(
     title = "B",
