@@ -160,10 +160,8 @@ All methods are **attachment-friendly** — no leaving him to cry alone:
 
 ## Timezone note
 
-The bot's proactive messages (bedtime at 7 PM, morning summary at 7 AM) are based on UTC. If you're in Israel (UTC+3), set these in Railway:
+The bot's proactive messages (bedtime at 7 PM, morning summary at 7 AM) are based on UTC by default. Add this variable in Railway so alerts fire at San Diego time:
 
 | Variable | Value |
 |----------|-------|
-| `TZ` | `Asia/Jerusalem` |
-
-This ensures the 7 PM reminder fires at your local 7 PM.
+| `TZ` | `America/Los_Angeles` |
