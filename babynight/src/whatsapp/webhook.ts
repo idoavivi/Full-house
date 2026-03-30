@@ -4,6 +4,7 @@ import { isMessageProcessed } from '../db/queries';
 import { sendMessage } from './sender';
 import { processMessage } from '../ai/brain';
 import { exportEventsCSV } from '../db/queries';
+import { transcribeVoiceNote } from './transcribe';
 
 // Track in-flight requests per phone to prevent race conditions
 const processing = new Set<string>();
@@ -57,17 +58,50 @@ async function handleSingleMessage(
   message: Record<string, unknown>,
   _phoneNumberId: string
 ): Promise<void> {
-  // Only handle text messages
-  if (message.type !== 'text') {
-    console.log(`[Webhook] Ignoring non-text message type: ${message.type}`);
+  const messageType = message.type as string;
+
+  // Only handle text and audio messages
+  if (messageType !== 'text' && messageType !== 'audio') {
+    console.log(`[Webhook] Ignoring message type: ${messageType}`);
     return;
   }
 
   const waMessageId = message.id as string;
-  const from = message.from as string; // The sender's phone number
-  const text = (message.text as { body: string })?.body?.trim();
+  const from = message.from as string;
 
-  if (!text) return;
+  let text: string;
+
+  if (messageType === 'audio') {
+    // Voice note — transcribe it first
+    const mediaId = (message.audio as { id: string })?.id;
+    if (!mediaId) return;
+
+    // Only process messages from authorised parents (check early for audio too)
+    if (!config.parents[from]) {
+      console.log(`[Webhook] Audio from unknown number ${from} — ignored`);
+      return;
+    }
+
+    if (isMessageProcessed(waMessageId)) return;
+
+    if (!process.env.OPENAI_API_KEY) {
+      await sendMessage(from, "Voice notes aren't set up yet — please text me for now 🙏");
+      return;
+    }
+
+    try {
+      text = await transcribeVoiceNote(mediaId);
+      console.log(`[Webhook] Transcribed voice note from ${from}: "${text}"`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[Webhook] Transcription failed: ${msg}`);
+      await sendMessage(from, "Sorry, I couldn't understand that voice note — could you type it? 🙏");
+      return;
+    }
+  } else {
+    text = (message.text as { body: string })?.body?.trim();
+    if (!text) return;
+  }
 
   // Deduplicate: WhatsApp sends webhooks multiple times
   if (isMessageProcessed(waMessageId)) {
