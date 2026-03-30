@@ -71,13 +71,20 @@ export function buildUserContext(phone: string): string {
             if (e.duration_min) parts.push(`${e.duration_min}min`);
             if (e.mood) parts.push(e.mood);
             if (e.notes) parts.push(`"${e.notes}"`);
+            if (e.reported_by && e.reported_by !== parentName) parts.push(`(logged by ${e.reported_by})`);
             return parts.join(' ');
           })
           .join('\n');
 
+  const otherParents = Object.values(config.parents)
+    .filter(p => p.name !== parentName)
+    .map(p => p.name)
+    .join(', ');
+
   return `[Context for this message]
-Sender: ${parentName} (${phone})
-Today's events so far:
+Sender: ${parentName}
+Both parents share this bot and log events from separate chats. Events below include logs from ${otherParents ? `both ${parentName} and ${otherParents}` : 'both parents'}.
+Today's events so far (all parents combined):
 ${eventsSummary}`;
 }
 
