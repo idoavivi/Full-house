@@ -40,9 +40,12 @@ export async function sendMessage(to: string, text: string): Promise<void> {
     console.log(`[WhatsApp] Sent to ${to}: ${text.slice(0, 80)}...`);
   } catch (err: unknown) {
     if (axios.isAxiosError(err)) {
-      console.error('[WhatsApp] Send failed:', err.response?.data || err.message);
+      const data = err.response?.data as { error?: { message?: string; code?: number } } | undefined;
+      const msg = data?.error?.message || err.message;
+      const code = data?.error?.code || err.response?.status;
+      console.error(`[WhatsApp] Send failed (${code}): ${msg}`);
     } else {
-      console.error('[WhatsApp] Send failed:', err);
+      console.error('[WhatsApp] Send failed:', err instanceof Error ? err.message : String(err));
     }
     throw err;
   }

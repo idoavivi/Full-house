@@ -28,7 +28,8 @@ export function scheduleCheckIns(): void {
           await broadcastToParents(message);
           console.log(`[Scheduler] Check-in sent for ${time}`);
         } catch (err) {
-          console.error(`[Scheduler] Check-in failed for ${time}:`, err);
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[Scheduler] Check-in failed for ${time}: ${msg}`);
         }
       },
       { timezone }
